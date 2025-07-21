@@ -1,16 +1,13 @@
 CC = gcc
 
-CFLAGS = -I./ImageStreamIO/src -Wall
-LDFLAGS = -L./ImageStreamIO/build/lib -lImageStreamIO -lm -lusb-1.0 -lportaudio
+CFLAGS = -O3 -I./ImageStreamIO/src -Wall
+LDFLAGS = -L./ImageStreamIO/build/lib -lImageStreamIO -lm -lportaudio
 
-TARGET = dataProcessEX dataRead paRead
+TARGET = dataProcessEX paRead
 
 all: $(TARGET)
 
 dataProcessEX: dataProcessEX.c
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
-
-dataRead: dataRead.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 paRead: paRead.c
