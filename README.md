@@ -47,7 +47,7 @@ A low‑latency readout system for accelerometers using a DigiDAQ ICP USB signal
 
 3. **Monitor readout**
   ```bash
-  milk-shmimmon sig00'
+  milk-shmimmon sig00
   ```
 4. **Transmit data**
   ```bash
