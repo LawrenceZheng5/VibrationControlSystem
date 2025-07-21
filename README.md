@@ -12,7 +12,7 @@ A low‑latency readout system for accelerometers using a DigiDAQ ICP USB signal
 
 ## Low Latency System Setup
 1. **Platform**  
-   Raspberry Pi 4 running the ROS 2 real‑time distro  
+   Raspberry Pi 4 running the Ubuntu ROS 2 real‑time image  
    <https://github.com/ros-realtime/ros-realtime-rpi4-image>
 
 2. **Checklist**  
