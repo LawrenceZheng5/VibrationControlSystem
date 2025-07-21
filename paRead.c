@@ -29,54 +29,23 @@
 IMAGE *linarray;
 IMAGE *sigarray;
 
+// Raw to acceleration conversions
+float scaleAccel1 = 10.f / (32767.f * ACCEL1_CALIBRATION);
+float scaleAccel2 = 10.f / (32767.f * ACCEL1_CALIBRATION);
 
-void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
-/*
- * Helper function for callback
- * Turns into acceleration
- * Writes to milk shm
- */  
-  sigarray->md[0].write = 1;
-  float *buf = sigarray->array.F;
-  for (unsigned long i = 0; i < frameCount; ++i) {
-    // CH1
-    buf[i * 2] = (((float)samples[i * 2])/32767) * (10/ACCEL1_CALIBRATION); // To ms/s2
-    // CH2
-    buf[i * 2 + 1] = (((float)samples[i * 2 + 1])/32767) * (10/ACCEL2_CALIBRATION); // To m/s2
-    
-  }
-  // Write to shm
-  sigarray[0].md[0].write = 0;
-  ImageStreamIO_sempost(&sigarray[0], -1);
-  sigarray[0].md[0].cnt0++;
-  sigarray[0].md[0].cnt1++;
 
-}
+void PROCESS_DATA(const int16_t *samples, unsigned long frameCount);
 
-static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void *userData)
-/*
- * Callback function for PortAudio data
- */
-{
-	
-  (void) outputBuffer;
-  (void) timeInfo;
-  (void) statusFlags;
-  (void) userData;
-  
-
-  if (inputBuffer == NULL) return paContinue;
-  
-  const int16_t *samples = (const int16_t *)inputBuffer;
-  PROCESS_DATA(samples, framesPerBuffer);
-  return paContinue;
-}
+static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void *userData);
 
 int main() {
   
   // Lock memory to only RAM 
-  mlockall(MCL_CURRENT | MCL_FUTURE);
-  
+  if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+    perror("mlockall");
+    return 1;
+  }
+
   // Create shm img
   int NBIMAGES = 1;
   long naxis;
@@ -170,12 +139,53 @@ int main() {
   while(1){
     Pa_Sleep(1);
   }
+  munlockall();
   Pa_StopStream(stream);
   Pa_CloseStream(stream);
   Pa_Terminate();
+  
   return 0;
 }
 
 
+void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
+/*
+ * Helper function for callback
+ * Turns into acceleration
+ * Writes to milk shm
+ */  
+  sigarray->md[0].write = 1;
+  float *buf = sigarray->array.F;
+  for (unsigned long i = 0; i < frameCount; ++i) {
+    // CH1
+    buf[i * 2] = ((float)samples[i * 2] * scaleAccel1); // To ms/s2
+    // CH2
+    buf[i * 2 + 1] = ((float)samples[i * 2 + 1] * scaleAccel2); // To m/s2
+    
+  }
+  // Write to shm
+  sigarray[0].md[0].write = 0;
+  ImageStreamIO_sempost(&sigarray[0], -1);
+  sigarray[0].md[0].cnt0++;
+  sigarray[0].md[0].cnt1++;
 
+}
 
+static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void *userData) {
+/*
+ * Callback function for PortAudio data
+ */
+
+	
+  (void) outputBuffer;
+  (void) timeInfo;
+  (void) statusFlags;
+  (void) userData;
+  
+  if (inputBuffer == NULL) return paContinue;
+  
+  const int16_t *samples = (const int16_t *)inputBuffer;
+  PROCESS_DATA(samples, framesPerBuffer);
+  return paContinue;
+}
+  
