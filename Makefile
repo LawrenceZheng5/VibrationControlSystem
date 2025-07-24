@@ -3,7 +3,7 @@ CFLAGS = -O3 -I./ImageStreamIO/src -Wall
 LDLIBS = -lImageStreamIO -lm -lportaudio
 LDFLAGS = -L./ImageStreamIO/build/lib
 
-TARGETS = dataProcessEX paRead
+TARGETS = dataProcessEX paRead posTrack
 
 all: $(TARGETS)
 
