@@ -34,10 +34,11 @@
     } while(0)
 
 // Global Vars
-IMAGE *linarray;
+//IMAGE *linarray; // Debug
 IMAGE *sigarray;
 
-// Raw to acceleration conversions
+// Raw ADC to acceleration: 
+// (V_range / max_ADC)(1 / V_per_mps2)
 float scaleAccel1 = 10.f / (32767.f * ACCEL1_CALIBRATION);
 float scaleAccel2 = 10.f / (32767.f * ACCEL2_CALIBRATION);
 static const double t = 1.0 / SAMPLE_RATE;
@@ -92,15 +93,17 @@ int main() {
 
 
   // Debugging shm img
+  /*
   uint32_t sizeL[1];
   sizeL[0] = 2;
   linarray = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
   ImageStreamIO_createIm(&linarray[0], "lin00", 1, sizeL, _DATATYPE_INT32, 1, 0, 6);
-  
+  */
+
+
+  // Init PortAudio
   PaError err;
   PaStream *stream;
-  
-  // Init PortAudio
   err = Pa_Initialize();
   if (err != paNoError) {
     fprintf(stderr, "PortAudio Init Error: %s\n", Pa_GetErrorText(err));
@@ -260,7 +263,6 @@ static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long f
 /*
  * Callback function for PortAudio data
  */
-
 	
   (void) outputBuffer;
   (void) timeInfo;
