@@ -2,6 +2,7 @@
  * Modified readout to convert acceleration into position estimate
  * Implements double integral method to estimate position
  * Exponential moving average for bias correction
+ * Press any button to exit the program read
  */
 
 #include <stdio.h>
@@ -19,7 +20,7 @@
 #define CHANNELS 2
 #define TARGET_NAME "USB Audio" // Name of device on arecord 
 
-#define ACCEL1_CALIBRATION 1.042 // V/m/s^2
+#define ACCEL1_CALIBRATION 1.042 // V/m/s2
 #define ACCEL2_CALIBRATION 1.03
 #define WINDOW_SAMPLES 400
 
@@ -144,9 +145,8 @@ int main() {
   err = Pa_StartStream(stream);
   
   // Log to CSV file
-  logfp = fopen("accel_run13.csv", "w");
+  logfp = fopen("accel_run14.csv", "w");
   if(!logfp) { perror("fopen"); return 1; }
-  /* header row: time(s), a1, a2, v1, v2, p1, p2 */
   fprintf(logfp, "t,a1,a2,vel1,vel2,pos1,pos2\n");
 
 
