@@ -1,1 +1,6 @@
 ImageStreamIO/
+
+# Ignore the executable files
+dataProcessEX
+paRead
+posTrack

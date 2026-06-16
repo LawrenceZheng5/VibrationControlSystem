@@ -2,16 +2,16 @@
  * Example code to write image in shared memory
  *
  * compile with:
- * gcc ImCreate_test.c ImageStreamIO.c -lm -lpthread
+ * gcc dataProcessEX.c ImageStreamIO/ImageStreamIO.c -o dataProcessEX -lm -lpthread
  *
  * Required files in compilation directory :
- * ImCreate_test.c   : source code (this file)
+ * dataProcessEX.c   : source code (this file)
  * ImageStreamIO.c   : ImageStreamIO source code
  * ImageStreamIO.h   : ImageCreate function prototypes
  * ImageStruct.h     : Image structure definition
  *
  * EXECUTION:
- * ./a.out
+ * ./dataProcessEX
  * (no argument)
  *
  * Creates an image imtest00 in shared memory
