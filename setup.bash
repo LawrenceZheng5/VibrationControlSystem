@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-# For setup and downloading nesscary packages 
-
+# For setup and downloading necessary packages 
 sudo apt install alsa-utils
 sudo apt install cmake
 sudo apt install pkg-config 

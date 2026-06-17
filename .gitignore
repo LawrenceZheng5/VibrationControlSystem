@@ -4,3 +4,7 @@ ImageStreamIO/
 dataProcessEX
 paRead
 posTrack
+
+.vscode/
+*.txt
+*.fits
