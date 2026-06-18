@@ -1,15 +1,17 @@
 CC = gcc
-CFLAGS = -O3 -I./ImageStreamIO/src -Wall
+
+MILK_INSTALLDIR ?= /usr/local/milk-1.03.00
+
+CFLAGS = -O3 -I$(MILK_INSTALLDIR)/include -Wall
 LDLIBS = -lImageStreamIO -lm -lportaudio
-LDFLAGS = -L./ImageStreamIO/build/lib
+LDFLAGS = -L$(MILK_INSTALLDIR)/lib
 
 TARGETS = dataProcessEX paRead posTrack
 
 all: $(TARGETS)
 
-%: %.c
-	$(CC) $(CFLAGS) $< $(LDFLAGS) $(LDLIBS) -o $@
+%: src/%.c
+	$(CC) $(CFLAGS) $< $(LDFLAGS) $(LDLIBS) -o bin/$@
 
 clean:
-	rm -f $(TARGETS)
-
+	rm -f bin/*
