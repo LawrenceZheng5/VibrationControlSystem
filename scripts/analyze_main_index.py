@@ -31,7 +31,7 @@ def load_telemetry(path):
     return frame_index, main_index
 
 
-def analyze_file(path, output_dir=None, show_plot=False):
+def analyze_file(path, output_dir=None, print_plot=False):
     """
     Analyze one telemetry file:
       - compute differences between consecutive Main index values
@@ -41,9 +41,9 @@ def analyze_file(path, output_dir=None, show_plot=False):
     path = Path(path)
 
     print()
-    print("=" * 80)
+    print("=" * 90)
     print(f"Analyzing: {path}")
-    print("=" * 80)
+    print("=" * 90)
 
     frame_index, main_index = load_telemetry(path)
 
@@ -61,28 +61,28 @@ def analyze_file(path, output_dir=None, show_plot=False):
     print(f"Min diff: {diffs.min()}")
     print(f"Max diff: {diffs.max()}")
     print(f"Number of non-continuous jumps: {len(bad)}")
-
-    if len(bad) > 0:
-        print("\nNon-continuous jumps:")
-        print(
-            f"{'row range':<20}"
-            f"{'main range':<30}"
-            f"{'diff':>8}"
-            f"{'missing':>10}"
-        )
-        print("-" * 70)
-
-        for i in bad:
-            # If diff is 3, then two index values were skipped.
-            # If diff is less than or equal to 1, treat missing count as 0.
-            missing_count = max(diffs[i] - 1, 0)
-
+    if print_plot:
+        if len(bad) > 0:
+            print("\nNon-continuous jumps:")
             print(
-                f"{f'{i}->{i+1}':<20}"
-                f"{f'{main_index[i]}->{main_index[i+1]}':<30}"
-                f"{diffs[i]:>8}"
-                f"{missing_count:>10}"
+                f"{'row range':<20}"
+                f"{'main range':<30}"
+                f"{'diff':>8}"
+                f"{'missing':>10}"
             )
+            print("-" * 70)
+
+            for i in bad:
+                # If diff is 3, then two index values were skipped.
+                # If diff is less than or equal to 1, treat missing count as 0.
+                missing_count = max(diffs[i] - 1, 0)
+
+                print(
+                    f"{f'{i}->{i+1}':<20}"
+                    f"{f'{main_index[i]}->{main_index[i+1]}':<30}"
+                    f"{diffs[i]:>8}"
+                    f"{missing_count:>10}"
+                )
 
     # Decide where to save the output plot.
     # If output_dir is provided, save all plots there.
@@ -92,7 +92,9 @@ def analyze_file(path, output_dir=None, show_plot=False):
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / f"{path.stem}.png"
     else:
-        output_file = path.with_suffix(".png")
+        output_dir = path.parent / "plots"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / f"{path.stem}.png"
 
     plt.figure(figsize=(12, 5))
     plt.plot(diffs, marker=".", linestyle="none")
@@ -107,11 +109,8 @@ def analyze_file(path, output_dir=None, show_plot=False):
     plt.savefig(output_file, dpi=200, bbox_inches="tight")
     print(f"\nSaved plot to: {output_file}")
 
-    if show_plot:
-        plt.show()
-    else:
-        # Important when processing many files so figures do not pile up in memory.
-        plt.close()
+    plt.close()  # Close the figure to free memory
+
 
 
 def get_input_files(input_path, recursive=False):
@@ -160,9 +159,9 @@ def main():
     )
 
     parser.add_argument(
-        "--show",
+        "--print",
         action="store_true",
-        help="Show each plot interactively. Not recommended for many files.",
+        help="Print analysis summary to the console",
     )
 
     args = parser.parse_args()
@@ -180,7 +179,7 @@ def main():
             analyze_file(
                 path,
                 output_dir=args.output_dir,
-                show_plot=args.show,
+                print_plot=args.print,
             )
         except Exception as e:
             print()
