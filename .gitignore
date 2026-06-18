@@ -8,3 +8,5 @@ posTrack
 .vscode/
 *.txt
 *.fits
+
+*.png
