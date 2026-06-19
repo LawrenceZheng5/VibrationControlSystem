@@ -37,3 +37,5 @@ sudo apt-get install -y \
     pkg-config \
     gcc \
     g++
+
+sudo apt install cpuset
