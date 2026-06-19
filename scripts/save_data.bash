@@ -22,9 +22,13 @@ if [ ! -d "$DATA_DIR" ]; then
 fi
 echo "Saving data to $DATA_DIR..."
 
-echo "Stopping any existing FITS logger for $STREAM_NAME..."
-milk-streamFITSlog "$STREAM_NAME" off 2>/dev/null || true
-milk-streamFITSlog "$STREAM_NAME" kill 2>/dev/null || true
+if tmux has-session -t milkFITSlogger 2>/dev/null; then
+    echo "Stopping existing FITS logger..."
+    milk-streamFITSlog "$STREAM_NAME" off || true
+    milk-streamFITSlog "$STREAM_NAME" kill || true
+else
+    echo "No existing FITS logger running."
+fi
 
 cleanup() {
     echo
@@ -36,7 +40,7 @@ cleanup() {
     milk-streamFITSlog "$STREAM_NAME" offc || true
     milk-streamFITSlog "$STREAM_NAME" kill || true
 
-    echo "Data streaming stopped. Data saved in $DATA_DIR."
+    echo "Data streaming stopped. Data saved in $DATA_DIR"
     
     # Exit cleanly
     exit 0
