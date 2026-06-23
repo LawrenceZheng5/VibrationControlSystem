@@ -11,3 +11,4 @@ posTrack
 
 *.png
 *.csv
+bin/*

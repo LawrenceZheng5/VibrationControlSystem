@@ -10,12 +10,12 @@
 #define SAMPLE_RATE 8000
 #define SAMPLE_FORMAT paInt16
 #define FRAMES_PER_BUFFER 1
-#define CHANNELS 2
-#define TARGET_NAME "USB Audio" // Name of device on arecord 
+#define CHANNELS 1
+#define TARGET_NAME "485B39 200343308027880808317260" // Serial number of SC1
 
 // Change this when connecting accelerometer with different calibration 
-#define ACCEL1_CALIBRATION 1.042 // V/m/s^2
-#define ACCEL2_CALIBRATION 1.03
+#define ACCEL1_CALIBRATION 1.034 // V/m/s^2
+
 
 #define DEBUG_MARKER(img)                        \
     do {                                         \
@@ -31,7 +31,6 @@ IMAGE *linarray;
 IMAGE *sigarray;
 // Raw to acceleration conversions
 float scaleAccel1 = 10.f / (32767.f * ACCEL1_CALIBRATION);
-float scaleAccel2 = 10.f / (32767.f * ACCEL2_CALIBRATION);
 
 void PROCESS_DATA(const int16_t *samples, unsigned long frameCount);
 
@@ -61,14 +60,14 @@ int main() {
   shared = 1;
   NBkw = 0;
 
-  ImageStreamIO_createIm(&sigarray[0], "sig00", naxis, size, atype, shared, NBkw, 6);
+  ImageStreamIO_createIm(&sigarray[0], "sig01", naxis, size, atype, shared, NBkw, 6);
 
 
   // Debugging shm img
   uint32_t sizeL[1];
   sizeL[0] = 2;
   linarray = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
-  ImageStreamIO_createIm(&linarray[0], "lin00", 1, sizeL, _DATATYPE_INT32, 1, 0, 6);
+  ImageStreamIO_createIm(&linarray[0], "lin01", 1, sizeL, _DATATYPE_INT32, 1, 0, 6);
   
   PaError err;
   PaStream *stream;
@@ -157,9 +156,7 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
   float *buf = sigarray->array.F;
   for (unsigned long i = 0; i < frameCount; ++i) {
     // CH1
-    buf[i * 2] = ((float)samples[i * 2] * scaleAccel1); // To ms/s2
-    // CH2
-    buf[i * 2 + 1] = ((float)samples[i * 2 + 1] * scaleAccel2); // To m/s2
+    buf[i] = ((float)samples[i] * scaleAccel1); // To ms/s2
     
   }
   // Write to shm
@@ -174,8 +171,6 @@ static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long f
 /*
  * Callback function for PortAudio data
  */
-
-	
   (void) outputBuffer;
   (void) timeInfo;
   (void) statusFlags;
