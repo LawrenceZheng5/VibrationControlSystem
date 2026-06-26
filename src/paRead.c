@@ -11,7 +11,7 @@
 #define SAMPLE_FORMAT paInt16
 #define FRAMES_PER_BUFFER 1
 #define CHANNELS 2
-#define TARGET_NAME "485B39 200288708050190807212250" // Name of device on arecord 
+#define TARGET_NAME "485B39 200288708050190807212250" // Serial number of SC0
 
 // Change this when connecting accelerometer with different calibration 
 #define ACCEL1_CALIBRATION 1.042 // V/m/s^2
