@@ -1,14 +1,12 @@
-ImageStreamIO/
-
 # Ignore the executable files
-dataProcessEX
-paRead
-posTrack
+bin/*
 
 .vscode/
+
+# Data Files
 *.txt
 *.fits
 
+# Analysis Output files
 *.png
 *.csv
-bin/*
