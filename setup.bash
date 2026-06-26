@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 
 # For setup and downloading necessary packages 
-sudo apt install alsa-utils
-sudo apt install cmake
-sudo apt install pkg-config 
-sudo apt install portaudio19-dev 
-sudo apt install libcfitsio-dev 
+sudo apt install -y alsa-utils
+sudo apt install -y cmake
+sudo apt install -y pkg-config 
+sudo apt install -y portaudio19-dev 
+sudo apt install -y libcfitsio-dev 
 
 # Milk specfic dependencies
-sudo apt install libgsl-dev 
-sudo apt install libfftw3-dev 
-sudo apt install libncurses-dev 
-sudo apt install libreadline-dev 
-sudo apt install bison flex 
-sudo apt install libhwloc-dev 
-sudo apt install libopenblas-dev 
-sudo apt install liblapacke-dev 
+sudo apt install -y libgsl-dev 
+sudo apt install -y libfftw3-dev 
+sudo apt install -y libncurses-dev 
+sudo apt install -y libreadline-dev 
+sudo apt install -y bison flex 
+sudo apt install -y libhwloc-dev 
+sudo apt install -y libopenblas-dev 
+sudo apt install -y liblapacke-dev 
 sudo apt-get install -y \
     git \
     make \
@@ -36,6 +36,9 @@ sudo apt-get install -y \
     gfortran libopenblas-dev liblapacke-dev \
     pkg-config \
     gcc \
-    g++
+    g++ \
+    pip \
+    python3-pip \
+    nnn
 
-sudo apt install cpuset
+sudo apt install -y cpuset 
