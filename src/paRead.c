@@ -1,9 +1,15 @@
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <portaudio.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <sched.h>
+
 #include "ImageStreamIO/ImageStreamIO.h"
 #include "ImageStreamIO/ImageStruct.h"
 
@@ -33,6 +39,8 @@ IMAGE *sigarray;
 float scaleAccel1 = 10.f / (32767.f * ACCEL1_CALIBRATION);
 float scaleAccel2 = 10.f / (32767.f * ACCEL2_CALIBRATION);
 
+int printedRTProp = 0;
+
 void PROCESS_DATA(const int16_t *samples, unsigned long frameCount);
 
 static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void *userData);
@@ -46,30 +54,27 @@ int main() {
   }
 
   // Create shm img
-  int NBIMAGES = 1;
-  long naxis;
-  uint16_t atype;
   uint32_t size[2];
-  int shared;
-  int NBkw;
+  int NBIMAGES   = 1;
+  long naxis     = 2;
+  size[0]        = CHANNELS;          // 2 channels
+  size[1]        = FRAMES_PER_BUFFER; // 1 sample per frame
+  uint16_t atype = _DATATYPE_FLOAT;
+  int shared     = 1 ;
+  int NBkw       = 0;
+  int CBsize     = 6;                 // Circular buffer size
+
 
   sigarray = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
-  naxis = 2;
-  size[0] = 2;
-  size[1] = 1;
-  atype = _DATATYPE_FLOAT;
-  shared = 1;
-  NBkw = 0;
-
-  ImageStreamIO_createIm(&sigarray[0], "sig00", naxis, size, atype, shared, NBkw, 6);
+  ImageStreamIO_createIm(&sigarray[0], "sig00", naxis, size, atype, shared, NBkw, CBsize);
 
 
   // Debugging shm img
   uint32_t sizeL[1];
   sizeL[0] = 2;
   linarray = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
-  ImageStreamIO_createIm(&linarray[0], "lin00", 1, sizeL, _DATATYPE_INT32, 1, 0, 6);
-  
+  ImageStreamIO_createIm(&linarray[0], "lin00", 1, sizeL, _DATATYPE_INT32, 1, 0, CBsize);
+
   PaError err;
   PaStream *stream;
   
@@ -80,7 +85,7 @@ int main() {
     return 1;
   }
   
-  // Find USB device
+  // Find Signal Conditioner 
   int numDevices = Pa_GetDeviceCount();
   int targetDevice = -1;
   
@@ -125,18 +130,15 @@ int main() {
 
   printf("Reading device %s\n", TARGET_NAME);
   
-
   const PaStreamInfo *streamInfo = Pa_GetStreamInfo(stream);
   if (streamInfo != NULL) {
     printf("Input Latency: %.6f seconds\n", streamInfo->inputLatency);
   }
   else {
     fprintf(stderr, "Failed to report latency");
-  }
-
-  
+  }  
   while(1){
-    Pa_Sleep(1);
+    Pa_Sleep(1000);
   }
   munlockall();
   Pa_StopStream(stream);
@@ -182,7 +184,22 @@ static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long f
   (void) userData;
   
   if (inputBuffer == NULL) return paContinue;
-  
+  if (!printedRTProp) {
+    printedRTProp = 1;
+
+    // Print RT properties of the callback thread
+    pid_t tid = syscall(SYS_gettid);
+
+    int policy = sched_getscheduler(0);
+    struct sched_param param;
+    sched_getparam(0, &param);
+
+    printf("Callback running on TID %d\n", tid);
+    printf("Scheduler policy: %d\n", policy);
+    printf("RT priority: %d\n", param.sched_priority);
+    fflush(stdout);
+  }
+
   const int16_t *samples = (const int16_t *)inputBuffer;
   PROCESS_DATA(samples, framesPerBuffer);
   return paContinue;
