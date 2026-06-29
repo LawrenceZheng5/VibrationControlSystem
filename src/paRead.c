@@ -155,18 +155,35 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
  * Turns into acceleration
  * Writes to milk shm
  */  
+
+  // Writing 1 to indicate writing started
   sigarray->md[0].write = 1;
+
+  // Indicate the type of data (same as earlier defined)
   float *buf = sigarray->array.F;
+
+  // printf("Processing %lu samples\n", frameCount);
+
+  // Write data
   for (unsigned long i = 0; i < frameCount; ++i) {
+    // samples[frame_index * CHANNELS + channel_index]
+
     // CH1
-    buf[i * 2] = ((float)samples[i * 2] * scaleAccel1); // To ms/s2
-    // CH2
-    buf[i * 2 + 1] = ((float)samples[i * 2 + 1] * scaleAccel2); // To m/s2
+    buf[i * CHANNELS + 0] = ((float)samples[i * 2] * scaleAccel1); // To ms/s2
+    // printf("sample[%lu]: CH1: %d, CH2: %d -> Accel1: %.6f m/s^2, Accel2: %.6f m/s^2\n", i, samples[i * 2], samples[i * 2 + 1], buf[i * 2], buf[i * 2 + 1]);
     
+    // CH2
+    buf[i * CHANNELS + 1] = ((float)samples[i * 2 + 1] * scaleAccel2); // To m/s2
+    // printf("sample[%lu]: CH1: %d, CH2: %d -> Accel1: %.6f m/s^2, Accel2: %.6f m/s^2\n", i, samples[i * 2], samples[i * 2 + 1], buf[i * 2], buf[i * 2 + 1]);
   }
-  // Write to shm
+
+  // Write 0 to indicate writing finished
   sigarray[0].md[0].write = 0;
+
+  // Post semaphore to indicate downstream that data is ready
   ImageStreamIO_sempost(&sigarray[0], -1);
+
+  // Increment counters to indicate new data is available
   sigarray[0].md[0].cnt0++;
   sigarray[0].md[0].cnt1++;
 
