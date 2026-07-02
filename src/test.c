@@ -10,7 +10,9 @@ It is not part of the main program and is only used for testing purposes.
 #include <string.h>
 #include <stdint.h>
 
-#define TARGET_NAME "485B39 200343308027880808317260" // Name of device on arecord
+// #define TARGET_NAME "485B39 200343308027880808317260" // Name of device on arecord
+#define TARGET_NAME "USB Audio" // Name of device on arecord
+
 #define CHANNELS 1
 #define SAMPLE_RATE 8000
 #define SAMPLE_FORMAT paInt16
@@ -33,7 +35,7 @@ static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long f
   printf("Received %lu samples: ", framesPerBuffer);
   for (unsigned long i = 0; i < framesPerBuffer; ++i) {
     printf("%d ", samples[i]);
-    fflush(stdout);
+    // fflush(stdout);
   }
   printf("\n");
 //   PROCESS_DATA(samples, framesPerBuffer);
@@ -67,11 +69,11 @@ int main() {
         printf("Default High Input Latency: %.6f seconds\n", info->defaultHighInputLatency);
         printf("Struct version: %d\n", info->structVersion);
         printf("\n");
-        if (info->maxInputChannels > 0 && strstr(info->name, TARGET_NAME)) {
-            printf("Found device [%d]: %s\n", i, info->name);
-            targetDeviceIndex = i;
-            break;
-        }
+        // if (info->maxInputChannels > 0 && strstr(info->name, TARGET_NAME)) {
+        //     printf("Found device [%d]: %s\n", i, info->name);
+        //     targetDeviceIndex = i;
+        //     break;
+        // }
     }
     PaStreamParameters inputParams;
     inputParams.device = targetDeviceIndex;
