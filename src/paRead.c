@@ -17,11 +17,16 @@
 #define SAMPLE_FORMAT paInt16
 #define FRAMES_PER_BUFFER 1
 #define CHANNELS 2
-#define TARGET_NAME "485B39 200288708050190807212250" // Serial number of SC0
+
+// Serial Numbers for the two signal conditioners
+#define SC0 "485B39 200288708050190807212250" 
+#define SC1 "485B39 200343308027880808317260" 
 
 // Change this when connecting accelerometer with different calibration 
-#define ACCEL1_CALIBRATION 1.042 // V/m/s^2
-#define ACCEL2_CALIBRATION 1.03
+// Only using 3 accel for 3 axis on one of those aluminum mounting block
+#define SC0_CH1_ACCEL_CALIBRATION 1.042 // V/m/s^2
+#define SC0_CH2_ACCEL_CALIBRATION 1.03
+#define SC1_CH1_ACCEL_CALIBRATION 1.034
 
 #define DEBUG_MARKER(img)                        \
     do {                                         \
@@ -36,8 +41,8 @@
 IMAGE *linarray;
 IMAGE *sigarray;
 // Raw to acceleration conversions
-float scaleAccel1 = 10.f / (32767.f * ACCEL1_CALIBRATION);
-float scaleAccel2 = 10.f / (32767.f * ACCEL2_CALIBRATION);
+float sc0Ch1ScaleFactor = 10.f / (32767.f * SC0_CH1_ACCEL_CALIBRATION);
+float sc0Ch2ScaleFactor = 10.f / (32767.f * SC0_CH2_ACCEL_CALIBRATION);
 
 int printedRTProp = 0;
 
@@ -46,7 +51,6 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount);
 static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void *userData);
 
 int main() {
-  
   // Lock memory to only RAM 
   if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
     perror("mlockall");
@@ -64,7 +68,7 @@ int main() {
   int NBkw       = 0;
   int CBsize     = 6;                 // Circular buffer size
 
-
+  // For Accels on SC0
   sigarray = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
   ImageStreamIO_createIm(&sigarray[0], "sig00", naxis, size, atype, shared, NBkw, CBsize);
 
@@ -91,7 +95,7 @@ int main() {
   
   for (int i = 0; i < numDevices; i++) {
     const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
-    if (info->maxInputChannels > 0 && strstr(info->name, TARGET_NAME)) {
+    if (info->maxInputChannels > 0 && strstr(info->name, SC0)) {
       printf("Found device [%d]: %s\n", i, info->name);
       targetDevice = i;
       break;
@@ -99,7 +103,7 @@ int main() {
   }
   
   if (targetDevice == -1) {
-    fprintf(stderr, "No matching input found for %s\n", TARGET_NAME);
+    fprintf(stderr, "No matching input found for %s\n", SC0);
     Pa_Terminate();
     return 1;
   }
@@ -128,7 +132,6 @@ int main() {
     return 1;
   }
 
-  printf("Reading device %s\n", TARGET_NAME);
   
   const PaStreamInfo *streamInfo = Pa_GetStreamInfo(stream);
   if (streamInfo != NULL) {
@@ -137,6 +140,24 @@ int main() {
   else {
     fprintf(stderr, "Failed to report latency");
   }  
+
+  pid_t tid = syscall(SYS_gettid);
+
+  int policy = sched_getscheduler(0);
+  struct sched_param param;
+  sched_getparam(0, &param);
+
+  
+  int cpu = sched_getcpu();
+  
+  printf("\n");
+  printf("---- Main RT Properties ----\n");
+  printf("Main running on TID %d\n", tid);
+  printf("Running on CPU %d\n", cpu);
+  printf("Scheduler policy: %d\n", policy);
+  printf("RT priority: %d\n", param.sched_priority);
+  fflush(stdout);
+
   while(1){
     Pa_Sleep(1000);
   }
@@ -144,7 +165,9 @@ int main() {
   Pa_StopStream(stream);
   Pa_CloseStream(stream);
   Pa_Terminate();
-  
+  ImageStreamIO_destroyIm(&sigarray[0]);
+  ImageStreamIO_destroyIm(&linarray[0]);
+
   return 0;
 }
 
@@ -168,13 +191,12 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
   for (unsigned long i = 0; i < frameCount; ++i) {
     // samples[frame_index * CHANNELS + channel_index]
 
-    // CH1
-    buf[i * CHANNELS + 0] = ((float)samples[i * 2] * scaleAccel1); // To ms/s2
-    // printf("sample[%lu]: CH1: %d, CH2: %d -> Accel1: %.6f m/s^2, Accel2: %.6f m/s^2\n", i, samples[i * 2], samples[i * 2 + 1], buf[i * 2], buf[i * 2 + 1]);
+    // SC0 CH1
+    buf[i * CHANNELS + 0] = ((float)samples[i * CHANNELS + 0] * sc0Ch1ScaleFactor); // To ms/s2
     
-    // CH2
-    buf[i * CHANNELS + 1] = ((float)samples[i * 2 + 1] * scaleAccel2); // To m/s2
-    // printf("sample[%lu]: CH1: %d, CH2: %d -> Accel1: %.6f m/s^2, Accel2: %.6f m/s^2\n", i, samples[i * 2], samples[i * 2 + 1], buf[i * 2], buf[i * 2 + 1]);
+    // SC0 CH2
+    buf[i * CHANNELS + 1] = ((float)samples[i * CHANNELS + 1] * sc0Ch2ScaleFactor); // To m/s2
+    // printf("sample[%lu]: SC0 CH1: %d, SC0 CH2: %d -> Accel1: %.6f m/s^2, Accel2: %.6f m/s^2\n", i, samples[i * CHANNELS + 0], samples[i * CHANNELS + 1], buf[i * CHANNELS + 0], buf[i * CHANNELS + 1]);
   }
 
   // Write 0 to indicate writing finished
@@ -186,7 +208,9 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
   // Increment counters to indicate new data is available
   sigarray[0].md[0].cnt0++;
   sigarray[0].md[0].cnt1++;
-
+  // printf("On Ch1 Count %ld\n", sigarray[0].md[0].cnt0);
+  // printf("On Ch2 Count %ld\n", sigarray[0].md[0].cnt1);
+  // printf("\n");
 }
 
 static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void *userData) {
@@ -211,7 +235,13 @@ static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long f
     struct sched_param param;
     sched_getparam(0, &param);
 
+    
+    int cpu = sched_getcpu();
+    
+    printf("\n");
+    printf("---- PortAudio Callback RT Properties ----\n");
     printf("Callback running on TID %d\n", tid);
+    printf("Running on CPU %d\n", cpu);
     printf("Scheduler policy: %d\n", policy);
     printf("RT priority: %d\n", param.sched_priority);
     fflush(stdout);
@@ -221,4 +251,3 @@ static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long f
   PROCESS_DATA(samples, framesPerBuffer);
   return paContinue;
 }
-  
