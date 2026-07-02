@@ -159,7 +159,7 @@ def compute_metrics(path, frame_index, main_index, sample_rate=None):
     return metrics
 
 
-def print_metrics(metrics):
+def print_metrics_summary(metrics):
     """
     Print a readable summary for one file.
     """
@@ -235,7 +235,7 @@ def save_diff_histogram(path, diffs, output_dir):
     return output_file
 
 
-def analyze_file(path, output_dir=None, print_jumps=False, sample_rate=None):
+def analyze_file(path, output_dir=None, print_jumps=False, sample_rate=None, print_metrics=False):
     """
     Analyze one telemetry file:
       - compute differences between consecutive Main index values
@@ -244,11 +244,11 @@ def analyze_file(path, output_dir=None, print_jumps=False, sample_rate=None):
       - save plots
     """
     path = Path(path)
-
-    print()
-    print("=" * 90)
-    print(f"Analyzing: {path}")
-    print("=" * 90)
+    if print_metrics:
+        print()
+        print("=" * 90)
+        print(f"Analyzing: {path}")
+        print("=" * 90)
 
     frame_index, main_index = load_telemetry(path)
 
@@ -259,7 +259,8 @@ def analyze_file(path, output_dir=None, print_jumps=False, sample_rate=None):
     diffs = np.diff(main_index)
     metrics = compute_metrics(path, frame_index, main_index, sample_rate=sample_rate)
 
-    print_metrics(metrics)
+    if print_metrics:
+        print_metrics_summary(metrics)
 
     if print_jumps:
         print_bad_jump_table(main_index, diffs)
@@ -290,11 +291,11 @@ def analyze_file(path, output_dir=None, print_jumps=False, sample_rate=None):
     plt.savefig(output_file, dpi=200, bbox_inches="tight")
     plt.close()  # Close the figure to free memory.
 
-    print(f"Saved plot to: {output_file}")
+    # print(f"Saved plot to: {output_file}")
 
     # Histogram of jump sizes.
     hist_file = save_diff_histogram(path, diffs, output_dir)
-    print(f"Saved diff histogram to: {hist_file}")
+    # print(f"Saved diff histogram to: {hist_file}")
 
     return metrics
 
@@ -453,6 +454,12 @@ def main():
     )
 
     parser.add_argument(
+        "--print-metrics",
+        action="store_true",
+        help="Print metrics for each file to the console.",
+    )
+
+    parser.add_argument(
         "--summary-csv",
         default=None,
         help="Optional filename for the metrics CSV. Default: save continuity_summary.csv in the plot output directory.",
@@ -483,6 +490,7 @@ def main():
                 path,
                 output_dir=args.output_dir,
                 print_jumps=args.print_jumps,
+                print_metrics=args.print_metrics,
                 sample_rate=args.sample_rate,
             )
             metrics_list.append(metrics)
