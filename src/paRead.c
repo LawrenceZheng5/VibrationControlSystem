@@ -1,17 +1,6 @@
 #define _GNU_SOURCE
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <portaudio.h>
-#include <stdint.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <sys/syscall.h>
-#include <sched.h>
-
-#include "ImageStreamIO/ImageStreamIO.h"
-#include "ImageStreamIO/ImageStruct.h"
+#include "paRead.h"
 
 #define SAMPLE_RATE 8000
 #define SAMPLE_FORMAT paInt16
@@ -39,16 +28,15 @@
 
 // Global Vars
 IMAGE *linarray;
-IMAGE *sigarray;
+IMAGE *sigarray0;
+IMAGE *sigarray1;
+
+
 // Raw to acceleration conversions
 float sc0Ch1ScaleFactor = 10.f / (32767.f * SC0_CH1_ACCEL_CALIBRATION);
 float sc0Ch2ScaleFactor = 10.f / (32767.f * SC0_CH2_ACCEL_CALIBRATION);
 
 int printedRTProp = 0;
-
-void PROCESS_DATA(const int16_t *samples, unsigned long frameCount);
-
-static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void *userData);
 
 int main() {
   // Lock memory to only RAM 
@@ -69,9 +57,11 @@ int main() {
   int CBsize     = 6;                 // Circular buffer size
 
   // For Accels on SC0
-  sigarray = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
-  ImageStreamIO_createIm(&sigarray[0], "sig00", naxis, size, atype, shared, NBkw, CBsize);
+  sigarray0 = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
+  ImageStreamIO_createIm(&sigarray0[0], "sig00", naxis, size, atype, shared, NBkw, CBsize);
 
+  sigarray1 = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
+  ImageStreamIO_createIm(&sigarray1[0], "sig01", naxis, size, atype, shared, NBkw, CBsize);
 
   // Debugging shm img
   uint32_t sizeL[1];
@@ -80,8 +70,7 @@ int main() {
   ImageStreamIO_createIm(&linarray[0], "lin00", 1, sizeL, _DATATYPE_INT32, 1, 0, CBsize);
 
   PaError err;
-  PaStream *stream;
-  
+
   // Init PortAudio
   err = Pa_Initialize();
   if (err != paNoError) {
@@ -89,53 +78,15 @@ int main() {
     return 1;
   }
   
-  // Find Signal Conditioner 
-  int numDevices = Pa_GetDeviceCount();
-  int targetDevice = -1;
   
-  for (int i = 0; i < numDevices; i++) {
-    const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
-    if (info->maxInputChannels > 0 && strstr(info->name, SC0)) {
-      printf("Found device [%d]: %s\n", i, info->name);
-      targetDevice = i;
-      break;
-    }
-  }
+  PaStream* stream0 = START_STREAM(SC0);
+  PaStream* stream1 = START_STREAM(SC1);
   
-  if (targetDevice == -1) {
-    fprintf(stderr, "No matching input found for %s\n", SC0);
-    Pa_Terminate();
-    return 1;
-  }
-
-  // Set PortAudio params & open stream
-  PaStreamParameters inputParams;
-  inputParams.device = targetDevice;
-  inputParams.channelCount = CHANNELS;
-  inputParams.sampleFormat = SAMPLE_FORMAT;
-  inputParams.suggestedLatency = Pa_GetDeviceInfo(inputParams.device)->defaultLowInputLatency;
-  inputParams.hostApiSpecificStreamInfo = NULL;
- 
-  err = Pa_OpenStream(&stream, &inputParams, NULL, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff, CALLBACK, NULL);
- 
-  if (err != paNoError){
-    fprintf(stderr, "Pa_OpenStream error: %s\n", Pa_GetErrorText(err));
-    Pa_Terminate();
-    return 1;
-    }
-  
-  err = Pa_StartStream(stream);
-
-  if (err != paNoError){
-    fprintf(stderr, "Pa_StartStream error: %s\n", Pa_GetErrorText(err));
-    Pa_Terminate();
-    return 1;
-  }
-
-  
-  const PaStreamInfo *streamInfo = Pa_GetStreamInfo(stream);
-  if (streamInfo != NULL) {
-    printf("Input Latency: %.6f seconds\n", streamInfo->inputLatency);
+  const PaStreamInfo *streamInfo0 = Pa_GetStreamInfo(stream0);
+  const PaStreamInfo *streamInfo1 = Pa_GetStreamInfo(stream1);
+  if (streamInfo0 != NULL && streamInfo1 != NULL) {
+    printf("Input Latency: %.6f seconds\n", streamInfo0->inputLatency);
+    printf("Input Latency: %.6f seconds\n", streamInfo1->inputLatency);
   }
   else {
     fprintf(stderr, "Failed to report latency");
@@ -162,10 +113,13 @@ int main() {
     Pa_Sleep(1000);
   }
   munlockall();
-  Pa_StopStream(stream);
-  Pa_CloseStream(stream);
+  Pa_StopStream(stream0);
+  Pa_CloseStream(stream0);
+  Pa_StopStream(stream1);
+  Pa_CloseStream(stream1);
   Pa_Terminate();
-  ImageStreamIO_destroyIm(&sigarray[0]);
+  ImageStreamIO_destroyIm(&sigarray0[0]);
+  ImageStreamIO_destroyIm(&sigarray1[0]);
   ImageStreamIO_destroyIm(&linarray[0]);
 
   return 0;
@@ -180,10 +134,10 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
  */  
 
   // Writing 1 to indicate writing started
-  sigarray->md[0].write = 1;
+  sigarray0->md[0].write = 1;
 
   // Indicate the type of data (same as earlier defined)
-  float *buf = sigarray->array.F;
+  float *buf = sigarray0->array.F;
 
   // printf("Processing %lu samples\n", frameCount);
 
@@ -199,17 +153,22 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount) {
     // printf("sample[%lu]: SC0 CH1: %d, SC0 CH2: %d -> Accel1: %.6f m/s^2, Accel2: %.6f m/s^2\n", i, samples[i * CHANNELS + 0], samples[i * CHANNELS + 1], buf[i * CHANNELS + 0], buf[i * CHANNELS + 1]);
   }
 
+  // Increment counters to indicate new data is available
+  sigarray0->md[0].cnt0++;
+  sigarray0->md[0].cnt1++;
+
   // Write 0 to indicate writing finished
-  sigarray[0].md[0].write = 0;
+  sigarray0->md[0].write = 0;
 
   // Post semaphore to indicate downstream that data is ready
-  ImageStreamIO_sempost(&sigarray[0], -1);
+  ImageStreamIO_sempost(&sigarray0[0], -1);
 
   // Increment counters to indicate new data is available
-  sigarray[0].md[0].cnt0++;
-  sigarray[0].md[0].cnt1++;
-  // printf("On Ch1 Count %ld\n", sigarray[0].md[0].cnt0);
-  // printf("On Ch2 Count %ld\n", sigarray[0].md[0].cnt1);
+  // sigarray0->md[0].cnt0++;
+  // sigarray0->md[0].cnt1++;
+
+  // printf("On Ch1 Count %ld\n", sigarray0->md[0].cnt0);
+  // printf("On Ch2 Count %ld\n", sigarray0->md[0].cnt1);
   // printf("\n");
 }
 
@@ -250,4 +209,54 @@ static int CALLBACK(const void *inputBuffer, void *outputBuffer, unsigned long f
   const int16_t *samples = (const int16_t *)inputBuffer;
   PROCESS_DATA(samples, framesPerBuffer);
   return paContinue;
+}
+
+int FIND_DEVICE(const char *target_name) {
+  int numDevices = Pa_GetDeviceCount();
+  int targetDevice = -1;
+  
+  for (int i = 0; i < numDevices; i++) {
+    const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
+    if (info->maxInputChannels > 0 && strstr(info->name, target_name)) {
+      printf("Found device [%d]: %s\n", i, info->name);
+      targetDevice = i;
+      break;
+    }
+  }
+  
+  if (targetDevice == -1) {
+    fprintf(stderr, "No matching input found for %s\n", target_name);
+    return -1;
+  }
+  
+  return targetDevice;
+}
+
+PaStream* START_STREAM(char *targetDevice) {
+  PaError err;
+  PaStream *stream;
+
+  // Set PortAudio params & open stream
+  PaStreamParameters inputParams;
+  inputParams.device = FIND_DEVICE(targetDevice);
+  inputParams.channelCount = CHANNELS;
+  inputParams.sampleFormat = SAMPLE_FORMAT;
+  inputParams.suggestedLatency = Pa_GetDeviceInfo(inputParams.device)->defaultLowInputLatency;
+  inputParams.hostApiSpecificStreamInfo = NULL;
+
+  err = Pa_OpenStream(&stream, &inputParams, NULL, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff, CALLBACK, NULL);
+
+  if (err != paNoError){
+    fprintf(stderr, "Pa_OpenStream error: %s\n", Pa_GetErrorText(err));
+    return NULL;
+  }
+
+  err = Pa_StartStream(stream);
+  
+  if (err != paNoError){
+    fprintf(stderr, "Pa_StartStream error: %s\n", Pa_GetErrorText(err));
+    return NULL;
+  }
+
+  return stream;
 }
