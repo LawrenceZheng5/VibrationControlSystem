@@ -26,6 +26,7 @@ typedef struct {
     float chScale[CHANNELS];    // Calibration scale factors
     const char *name;           // Debug name: "SC0", "SC1"
     int printedRTProp;          // Per-callback debug print
+    int conditionerIndex;       // Index of the signal conditioner (0 or 1)
 } StreamContext;
 
 void PROCESS_DATA(const int16_t *samples, unsigned long frameCount, StreamContext *ctx);

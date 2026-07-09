@@ -6,7 +6,7 @@ CFLAGS = -O3 -I$(MILK_INSTALLDIR)/include -Wall -Iinclude
 LDLIBS = -lImageStreamIO -lm -lportaudio
 LDFLAGS = -L$(MILK_INSTALLDIR)/lib
 
-TARGETS = dataProcessEX paRead posTrack test
+TARGETS = dataProcessEX paRead posTrack test monitorCount monitorTime
 
 all: $(TARGETS)
 
