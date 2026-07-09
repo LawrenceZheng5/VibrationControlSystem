@@ -2,6 +2,7 @@
 
 #include "paRead.h"
 
+#define NUM_SC 2
 #define SAMPLE_RATE 8000
 #define SAMPLE_FORMAT paInt16
 #define FRAMES_PER_BUFFER 1
@@ -29,7 +30,6 @@
 // Global Vars
 IMAGE *linarray;
 IMAGE *sigarray0;
-IMAGE *sigarray1;
 
 static volatile sig_atomic_t keepRunning = 1;
 
@@ -63,11 +63,12 @@ int main() {
   }
 
   // Create shm img
-  uint32_t size[2];
+  uint32_t size[3];
   int NBIMAGES   = 1;
-  long naxis     = 2;
-  size[0]        = CHANNELS;          // 2 channels
-  size[1]        = FRAMES_PER_BUFFER; // 1 sample per frame
+  long naxis     = 3;
+  size[0]        = CHANNELS;           // 2 Channels per Conditioner
+  size[1]        = NUM_SC;             // 2 Signal Conditioners
+  size[2]        = FRAMES_PER_BUFFER;  // 1 Frame per Buffer
   uint16_t atype = _DATATYPE_FLOAT;
   int shared     = 1 ;
   int NBkw       = 0;
@@ -77,9 +78,6 @@ int main() {
   sigarray0 = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
   ImageStreamIO_createIm(&sigarray0[0], "sig00", naxis, size, atype, shared, NBkw, CBsize);
 
-  sigarray1 = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
-  ImageStreamIO_createIm(&sigarray1[0], "sig01", naxis, size, atype, shared, NBkw, CBsize);
-
   StreamContext ctx0 = {
     .img = &sigarray0[0],
     .chScale = {
@@ -87,17 +85,19 @@ int main() {
       10.f / (32767.f * SC0_CH2_ACCEL_CALIBRATION)
     },
     .name = "SC0",
-    .printedRTProp = 0
+    .printedRTProp = 0,
+    .conditionerIndex = 0
   };
 
   StreamContext ctx1 = {
-      .img = &sigarray1[0],
+      .img = &sigarray0[0],
       .chScale = {
         10.f / (32767.f * SC1_CH1_ACCEL_CALIBRATION),
         0.0f  // unused or set this when connecting a 4th accelerometer
       },
       .name = "SC1",
-      .printedRTProp = 0
+      .printedRTProp = 0,
+      .conditionerIndex = 1
   };
 
   // Debugging shm img
@@ -155,30 +155,46 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount, StreamContex
  * Turns into acceleration
  * Writes to milk shm
  */  
+
   IMAGE *img = ctx->img;
-  // Writing 1 to indicate writing started
-  img->md[0].write = 1;
 
   // Indicate the type of data (same as earlier defined)
   float *buf = img->array.F;
+  
+  int conditionerIndex = ctx->conditionerIndex;
+
+  // Writing 1 to indicate writing started
+  img->md[0].write = 1;
 
   // printf("Processing %lu samples\n", frameCount);
 
   // Write data
-  for (unsigned long i = 0; i < frameCount; ++i) {
+  for (unsigned long frames = 0; frames < frameCount; ++frames) {
     for (int ch = 0; ch < CHANNELS; ++ch) {
-      buf[i * CHANNELS + ch] = ((float)samples[i * CHANNELS + ch] * ctx->chScale[ch]); // To m/s^2
+      unsigned long index = ch + CHANNELS * conditionerIndex + CHANNELS * NUM_SC * frames;
+
+      buf[index] = ((float)samples[frames * CHANNELS + ch] * ctx->chScale[ch]); // To m/s^2
     }
   }
 
-  // Increment counters to indicate new data is available
+/*
+  * cnt0 = normal frame/update counter
+  * cnt1 = tag showing which signal conditioner wrote most recently
+  *
+  * cnt1 = 0 means SC0
+  * cnt1 = 1 means SC1
+  */
   img->md[0].cnt0++;
-  img->md[0].cnt1++;
+  img->md[0].cnt1 = conditionerIndex; // Indicate which conditioner the data is from
 
   // Write 0 to indicate writing finished
   img->md[0].write = 0;
 
-  // Post semaphore to indicate downstream that data is ready
+  /*
+  * Priority mode:
+  * Only SC0 posts the semaphore.
+  * SC1 updates its slice, but does not wake up downstream consumers.
+  */
   ImageStreamIO_sempost(img, -1);
 
   // printf("Stream:%s On Ch1 Count %ld, Ch2 Count %ld\n", ctx->name, img->md[0].cnt0, img->md[0].cnt1);
@@ -322,11 +338,6 @@ void CLEAN_UP (PaStream *stream0, PaStream *stream1) {
     sigarray0 = NULL;
   }
 
-  if (sigarray1 != NULL) {
-    ImageStreamIO_destroyIm(&sigarray1[0]);
-    free(sigarray1);
-    sigarray1 = NULL;
-  }
 
   if (linarray != NULL) {
     ImageStreamIO_destroyIm(&linarray[0]);
