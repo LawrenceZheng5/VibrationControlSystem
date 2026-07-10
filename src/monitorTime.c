@@ -10,22 +10,15 @@
 #include <time.h>
 #include <errno.h>
 
+#include "common.h"
 #include "ImageStreamIO/ImageStreamIO.h"
 #include "ImageStreamIO/ImageStruct.h"
 
 static volatile sig_atomic_t keepRunning = 1;
 
-static void handle_signal(int signo)
-{
-    (void) signo;
-    keepRunning = 0;
-}
-
-static double now_sec(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-    return (double)ts.tv_sec + 1.0e-9 * (double)ts.tv_nsec;
+static void HANDLE_SIGNAL(int signo) {
+  (void) signo;
+  keepRunning = 0;
 }
 
 int main(int argc, char *argv[])
@@ -66,7 +59,7 @@ int main(int argc, char *argv[])
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = handle_signal;
+    sa.sa_handler = HANDLE_SIGNAL;
     sigemptyset(&sa.sa_mask);
 
     sigaction(SIGINT, &sa, NULL);
@@ -125,7 +118,7 @@ int main(int argc, char *argv[])
          * Wait until producer posts the stream semaphore.
          * This avoids spinning the CPU.
          */
-        ImageStreamIO_semwait(&img, 0);
+        ImageStreamIO_semtrywait(&img, 0);
 
         double tNow = now_sec();
 

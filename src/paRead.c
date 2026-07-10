@@ -2,8 +2,9 @@
 
 #include "paRead.h"
 
+
 #define NUM_SC 2
-#define SAMPLE_RATE 8000
+#define SAMPLE_RATE 44100.00
 #define SAMPLE_FORMAT paInt16
 #define FRAMES_PER_BUFFER 1
 
@@ -132,13 +133,40 @@ int main() {
 
   PRINT_RT_PROPERTIES(NULL);
 
+  double lastPrint = now_sec();
 
   while (keepRunning) {
     Pa_Sleep(1000);
+
+    double tNow = now_sec();
+    if (tNow - lastPrint >= 3600.0) {
+      printf("SC0 callbacks=%lu overflows=%lu | SC1 callbacks=%lu overflows=%lu | sig cnt0=%lu cnt1=%lu\n",
+              ctx0.callbackCount,
+              ctx0.inputOverflowCount,
+              ctx1.callbackCount,
+              ctx1.inputOverflowCount,
+              sigarray0[0].md[0].cnt0,
+              sigarray0[0].md[0].cnt1);
+      fflush(stdout);
+
+      lastPrint = tNow;
+    }
   }
 
   printf("\nStopping acquisition...\n");
+  printf("\nSummary:\n");
+  printf("SC0 callbacks=%lu overflows=%lu | SC1 callbacks=%lu overflows=%lu | sig cnt0=%lu cnt1=%lu\n",
+          ctx0.callbackCount,
+          ctx0.inputOverflowCount,
+          ctx1.callbackCount,
+          ctx1.inputOverflowCount,
+          sigarray0[0].md[0].cnt0,
+          sigarray0[0].md[0].cnt1);
+  fflush(stdout);
   CLEAN_UP(stream0, stream1);
+
+
+
   printf("Cleanup complete.\n");
 
   return 0;
@@ -214,8 +242,7 @@ static int CALLBACK(const void *inputBuffer,
 	
   (void) outputBuffer;
   (void) timeInfo;
-  (void) statusFlags;
-  
+
   StreamContext *ctx = (StreamContext *)userData;
   
   if (inputBuffer == NULL) return paContinue;
@@ -225,6 +252,16 @@ static int CALLBACK(const void *inputBuffer,
 
     PRINT_RT_PROPERTIES(ctx);
 
+  }
+
+  ctx->callbackCount++;
+
+  if (statusFlags & paInputOverflow) {
+    ctx->inputOverflowCount++;
+  }
+
+  if (statusFlags != 0 && !(statusFlags & paInputOverflow)) {
+    ctx->otherStatusCount++;
   }
 
   const int16_t *samples = (const int16_t *)inputBuffer;

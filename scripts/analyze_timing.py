@@ -482,10 +482,13 @@ def main():
 
     print(f"Found {len(files)} file(s) to analyze.")
 
-    metrics_list = []
+    metrics_by_dir = {}
 
     for path in files:
         try:
+            # If --output-dir is not given, analyze_file() saves plots
+            # to path.parent / "plots", meaning each signal folder gets
+            # its own plots folder.
             metrics = analyze_file(
                 path,
                 output_dir=args.output_dir,
@@ -493,7 +496,11 @@ def main():
                 print_metrics=args.print_metrics,
                 sample_rate=args.sample_rate,
             )
-            metrics_list.append(metrics)
+
+            if metrics is not None:
+                parent_dir = Path(path).parent
+                metrics_by_dir.setdefault(parent_dir, []).append(metrics)
+
         except Exception as e:
             print()
             print("=" * 80)
@@ -501,21 +508,27 @@ def main():
             print("=" * 80)
             print(e)
 
-    print_comparison_table(metrics_list)
+    # Print one combined comparison table for everything.
+    all_metrics = [
+        metrics
+        for metrics_list in metrics_by_dir.values()
+        for metrics in metrics_list
+    ]
+    print_comparison_table(all_metrics)
 
-    # Decide where the CSV should go.
-    if args.summary_csv is not None:
-        output_csv = Path(args.summary_csv)
-    elif args.output_dir is not None:
-        output_csv = Path(args.output_dir) / "continuity_summary.csv"
-    else:
-        input_path = Path(args.input)
-        if input_path.is_dir():
-            output_csv = input_path / "plots" / "continuity_summary.csv"
+    # Write one CSV per input subdirectory.
+    for parent_dir, metrics_list in metrics_by_dir.items():
+        if args.output_dir is not None:
+            # If user explicitly gave one output dir, keep old behavior:
+            # put all CSVs there, but name them by folder.
+            output_csv = Path(args.output_dir) / f"{parent_dir.name}_continuity_summary.csv"
         else:
-            output_csv = input_path.parent / "plots" / "continuity_summary.csv"
+            # Default behavior:
+            # sig00 files -> sig00/plots/continuity_summary.csv
+            # sig01 files -> sig01/plots/continuity_summary.csv
+            output_csv = parent_dir / "plots" / "continuity_summary.csv"
 
-    write_summary_csv(metrics_list, output_csv)
+        write_summary_csv(metrics_list, output_csv)
 
 
 if __name__ == "__main__":
