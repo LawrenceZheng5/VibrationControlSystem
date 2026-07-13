@@ -4,7 +4,7 @@
 
 
 #define NUM_SC 2
-#define SAMPLE_RATE 44100.00
+#define SAMPLE_RATE 16000.00
 #define SAMPLE_FORMAT paInt16
 #define FRAMES_PER_BUFFER 1
 
@@ -79,27 +79,56 @@ int main() {
   sigarray0 = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
   ImageStreamIO_createIm(&sigarray0[0], "sig00", naxis, size, atype, shared, NBkw, CBsize);
 
-  StreamContext ctx0 = {
-    .img = &sigarray0[0],
-    .chScale = {
-      10.f / (32767.f * SC0_CH1_ACCEL_CALIBRATION),
-      10.f / (32767.f * SC0_CH2_ACCEL_CALIBRATION)
-    },
-    .name = "SC0",
-    .printedRTProp = 0,
-    .conditionerIndex = 0
-  };
+  StreamContext ctx0 = {0};
 
-  StreamContext ctx1 = {
-      .img = &sigarray0[0],
-      .chScale = {
-        10.f / (32767.f * SC1_CH1_ACCEL_CALIBRATION),
-        0.0f  // unused or set this when connecting a 4th accelerometer
-      },
-      .name = "SC1",
-      .printedRTProp = 0,
-      .conditionerIndex = 1
-  };
+  ctx0.img = &sigarray0[0];
+  ctx0.chScale[0] = 10.f / (32767.f * SC0_CH1_ACCEL_CALIBRATION);
+  ctx0.chScale[1] = 10.f / (32767.f * SC0_CH2_ACCEL_CALIBRATION);
+  ctx0.name = "SC0";
+  ctx0.conditionerIndex = 0;
+  ctx0.timingEventCapacity = MAX_TIMING_EVENTS;
+
+  StreamContext ctx1 = {0};
+
+  ctx1.img = &sigarray0[0];
+  ctx1.chScale[0] = 10.f / (32767.f * SC1_CH1_ACCEL_CALIBRATION);
+  ctx1.chScale[1] = 0.0f;
+  ctx1.name = "SC1";
+  ctx1.conditionerIndex = 1;
+  ctx1.timingEventCapacity = MAX_TIMING_EVENTS;
+
+
+  ctx0.timingEvents = calloc(
+    ctx0.timingEventCapacity,
+    sizeof(*ctx0.timingEvents));
+
+  ctx1.timingEvents = calloc(
+      ctx1.timingEventCapacity,
+      sizeof(*ctx1.timingEvents));
+
+  if (ctx0.timingEvents == NULL ||
+      ctx1.timingEvents == NULL) {
+
+    perror("calloc timing events");
+
+    free(ctx0.timingEvents);
+    free(ctx1.timingEvents);
+
+    CLEAN_UP(NULL, NULL);
+    return 1;
+  }
+
+  memset(
+    ctx0.timingEvents,
+    0,
+    ctx0.timingEventCapacity *
+        sizeof(*ctx0.timingEvents));
+
+  memset(
+      ctx1.timingEvents,
+      0,
+      ctx1.timingEventCapacity *
+          sizeof(*ctx1.timingEvents));
 
   // Debugging shm img
   uint32_t sizeL[1];
@@ -120,49 +149,45 @@ int main() {
   PaStream* stream0 = START_STREAM(SC0, &ctx0);
   PaStream* stream1 = START_STREAM(SC1, &ctx1);
   
-  // const PaStreamInfo *streamInfo0 = Pa_GetStreamInfo(stream0);
-  // const PaStreamInfo *streamInfo1 = Pa_GetStreamInfo(stream1);
-
-  // if (streamInfo0 != NULL && streamInfo1 != NULL) {
-  //   printf("Input Latency: %.6f seconds\n", streamInfo0->inputLatency);
-  //   printf("Input Latency: %.6f seconds\n", streamInfo1->inputLatency);
-  // }
-  // else {
-  //   fprintf(stderr, "Failed to report latency");
-  // }  
 
   PRINT_RT_PROPERTIES(NULL);
 
-  double lastPrint = now_sec();
-
   while (keepRunning) {
     Pa_Sleep(1000);
-
-    double tNow = now_sec();
-    if (tNow - lastPrint >= 3600.0) {
-      printf("SC0 callbacks=%lu overflows=%lu | SC1 callbacks=%lu overflows=%lu | sig cnt0=%lu cnt1=%lu\n",
-              ctx0.callbackCount,
-              ctx0.inputOverflowCount,
-              ctx1.callbackCount,
-              ctx1.inputOverflowCount,
-              sigarray0[0].md[0].cnt0,
-              sigarray0[0].md[0].cnt1);
-      fflush(stdout);
-
-      lastPrint = tNow;
-    }
   }
 
   printf("\nStopping acquisition...\n");
   printf("\nSummary:\n");
-  printf("SC0 callbacks=%lu overflows=%lu | SC1 callbacks=%lu overflows=%lu | sig cnt0=%lu cnt1=%lu\n",
-          ctx0.callbackCount,
-          ctx0.inputOverflowCount,
-          ctx1.callbackCount,
-          ctx1.inputOverflowCount,
-          sigarray0[0].md[0].cnt0,
-          sigarray0[0].md[0].cnt1);
-  fflush(stdout);
+
+  if (stream0 != NULL) {
+    PaError stopErr = Pa_StopStream(stream0);
+    if (stopErr != paNoError) {
+        fprintf(stderr, "SC0 Pa_StopStream error: %s\n", Pa_GetErrorText(stopErr));
+    }
+  }
+    
+  if (stream1 != NULL) {
+    PaError stopErr = Pa_StopStream(stream1);
+
+    if (stopErr != paNoError) {
+      fprintf(stderr, "SC1 Pa_StopStream error: %s\n", Pa_GetErrorText(stopErr));
+    }
+  }
+
+  PRINT_TIMING_SUMMARY(&ctx0);
+  PRINT_TIMING_SUMMARY(&ctx1);
+
+  Pa_StopStream(stream0);
+  Pa_StopStream(stream1);
+
+  WRITE_TIMING_FILE("sc0_timing.csv", &ctx0);
+  WRITE_TIMING_FILE("sc1_timing.csv", &ctx1);
+  free(ctx0.timingEvents);
+  free(ctx1.timingEvents);
+
+  ctx0.timingEvents = NULL;
+  ctx1.timingEvents = NULL;
+
   CLEAN_UP(stream0, stream1);
 
 
@@ -218,11 +243,6 @@ void PROCESS_DATA(const int16_t *samples, unsigned long frameCount, StreamContex
   // Write 0 to indicate writing finished
   img->md[0].write = 0;
 
-  /*
-  * Priority mode:
-  * Only SC0 posts the semaphore.
-  * SC1 updates its slice, but does not wake up downstream consumers.
-  */
   ImageStreamIO_sempost(img, -1);
 
   // printf("Stream:%s On Ch1 Count %ld, Ch2 Count %ld\n", ctx->name, img->md[0].cnt0, img->md[0].cnt1);
@@ -235,37 +255,37 @@ static int CALLBACK(const void *inputBuffer,
                     PaStreamCallbackFlags statusFlags, 
                     void *userData
                   ) {
-/*
- * Callback function for PortAudio data
- */
 
-	
   (void) outputBuffer;
-  (void) timeInfo;
 
   StreamContext *ctx = (StreamContext *)userData;
+
+  atomic_fetch_add_explicit(&ctx->callbackCount,1,memory_order_relaxed);
   
-  if (inputBuffer == NULL) return paContinue;
+  if (statusFlags & paInputOverflow) {
+    atomic_fetch_add_explicit(&ctx->inputOverflowCount,1,memory_order_relaxed);
+  }
+  
+
+  if (statusFlags  && ~paInputOverflow) {
+    atomic_fetch_add_explicit(&ctx->otherStatusCount,1,memory_order_relaxed);
+  }
+
+  RECORD_TIMING(ctx, framesPerBuffer, timeInfo, statusFlags);
 
   if (!ctx->printedRTProp) {
     ctx->printedRTProp = 1;
 
     PRINT_RT_PROPERTIES(ctx);
-
   }
 
-  ctx->callbackCount++;
-
-  if (statusFlags & paInputOverflow) {
-    ctx->inputOverflowCount++;
+  if (inputBuffer == NULL) {
+    atomic_fetch_add_explicit(&ctx->nullInputCount, 1, memory_order_relaxed);
+    return paContinue;
   }
 
-  if (statusFlags != 0 && !(statusFlags & paInputOverflow)) {
-    ctx->otherStatusCount++;
-  }
+  PROCESS_DATA((const int16_t *)inputBuffer, framesPerBuffer, ctx);
 
-  const int16_t *samples = (const int16_t *)inputBuffer;
-  PROCESS_DATA(samples, framesPerBuffer, (StreamContext *)userData);
   return paContinue;
 }
 
@@ -358,16 +378,23 @@ void PRINT_RT_PROPERTIES(StreamContext *ctx) {
 
 void CLEAN_UP (PaStream *stream0, PaStream *stream1) {
   if (stream0 != NULL) {
-    Pa_StopStream(stream0);
+    if (Pa_IsStreamActive(stream0) == 1) {
+      Pa_StopStream(stream0);
+    }
+
     Pa_CloseStream(stream0);
   }
 
   if (stream1 != NULL) {
-    Pa_StopStream(stream1);
+    if (Pa_IsStreamActive(stream1) == 1) {
+      Pa_StopStream(stream1);
+    }
+
     Pa_CloseStream(stream1);
   }
 
   Pa_Terminate();
+
 
   if (sigarray0 != NULL) {
     ImageStreamIO_destroyIm(&sigarray0[0]);
@@ -383,4 +410,221 @@ void CLEAN_UP (PaStream *stream0, PaStream *stream1) {
   }
 
   munlockall();
+}
+
+static void RECORD_TIMING(StreamContext *ctx,
+                          unsigned long framesPerBuffer,
+                          const PaStreamCallbackTimeInfo* timeInfo,
+                          PaStreamCallbackFlags statusFlags) {
+  if (ctx == NULL || timeInfo == NULL) {
+      return;
+  }
+
+  const double expectedDelta = (double)framesPerBuffer / SAMPLE_RATE;
+  const double adcTime       = timeInfo->inputBufferAdcTime;
+  const double paCurrentTime = timeInfo->currentTime;
+  const double linuxTime     = now_sec();
+  const double paInputAge    = paCurrentTime - adcTime;
+  const double clockOffset   = linuxTime - paCurrentTime;
+
+  if (!ctx->timingInitialized) {
+    ctx->previousAdcTime       = adcTime;
+    ctx->previousPaCurrentTime = paCurrentTime;
+    ctx->previousLinuxTime     = linuxTime;
+    ctx->initialClockOffset    = clockOffset;
+    ctx->minimumAdcDelta       = DBL_MAX;
+    ctx->timingInitialized     = 1;
+    return;
+  }
+
+  const double adcDelta       = adcTime - ctx->previousAdcTime;
+  const double paCurrentDelta = paCurrentTime - ctx->previousPaCurrentTime;
+  const double linuxDelta     = linuxTime - ctx->previousLinuxTime;
+
+  const double clockOffsetChange = fabs(clockOffset - ctx->initialClockOffset);
+
+  ctx->previousAdcTime       = adcTime;
+  ctx->previousPaCurrentTime = paCurrentTime;
+  ctx->previousLinuxTime     = linuxTime;
+
+  if (adcDelta > 0.0) {
+    if (adcDelta < ctx->minimumAdcDelta) {
+      ctx->minimumAdcDelta = adcDelta;
+    }
+
+    if (adcDelta > ctx->maximumAdcDelta) {
+      ctx->maximumAdcDelta = adcDelta;
+    }
+  }
+
+  if (paCurrentDelta > ctx->maximumPaCurrentDelta) {
+    ctx->maximumPaCurrentDelta = paCurrentDelta;
+  }
+
+  if (linuxDelta > ctx->maximumLinuxDelta) {
+    ctx->maximumLinuxDelta = linuxDelta;
+  }
+
+  if (paInputAge > ctx->maximumPaInputAge) {
+    ctx->maximumPaInputAge = paInputAge;
+  }
+
+  if (clockOffsetChange > ctx->maximumClockOffsetChange) {
+    ctx->maximumClockOffsetChange = clockOffsetChange;
+  }
+
+  /*
+   * Estimate the number of elapsed sample blocks according
+   * to PortAudio's ADC timestamp.
+   */
+  uint64_t elapsedBlocks = 1;
+
+  if (adcDelta > 0.0 && expectedDelta > 0.0) {
+    const long long roundedBlocks = llround(adcDelta / expectedDelta);
+    if (roundedBlocks > 1) {
+      elapsedBlocks = (uint64_t)roundedBlocks;
+    }
+  }
+
+  uint64_t missingFrames = 0;
+
+  if (elapsedBlocks > 1) {
+    missingFrames = (elapsedBlocks - 1) * (uint64_t)framesPerBuffer;
+    ctx->adcDiscontinuityCount++;
+    ctx->estimatedMissingFrames += missingFrames;
+  }
+
+  /*
+   * At FRAMES_PER_BUFFER == 1, a 2x threshold is extremely
+   * sensitive. You may initially see many ordinary scheduling
+   * delays. The events are diagnostic, not automatic proof of
+   * sample loss.
+   */
+  const int adcJump = elapsedBlocks > 1;
+
+  const int paCallbackDelay    = paCurrentDelta > 2.0 * expectedDelta;
+  const int linuxCallbackDelay = linuxDelta > 2.0 * expectedDelta;
+
+  const int portAudioError = statusFlags != 0;
+
+  if (adcJump || paCallbackDelay || linuxCallbackDelay || portAudioError) {
+    if (ctx->timingEventCount < ctx->timingEventCapacity) {
+      TimingEvent *event = &ctx->timingEvents[ctx->timingEventCount++];
+      event->callbackIndex = atomic_load_explicit(&ctx->callbackCount,memory_order_relaxed);
+
+      event->adcTime  = adcTime;
+      event->adcDelta = adcDelta;
+
+      event->paCurrentTime  = paCurrentTime;
+      event->paCurrentDelta = paCurrentDelta;
+      event->linuxTime      = linuxTime;
+
+      event->linuxDelta = linuxDelta;
+      event->paInputAge = paInputAge;
+
+      event->clockOffsetChange = clockOffsetChange;
+
+      event->estimatedMissingFrames = missingFrames;
+
+      event->statusFlags = statusFlags;
+    } else {
+        ctx->discardedTimingEvents++;
+    }
+  }
+}
+
+static int WRITE_TIMING_FILE(const char *filename, const StreamContext *ctx)
+{
+  FILE *file = fopen(filename, "w");
+
+  if (file == NULL) {
+    perror(filename);
+    return -1;
+  }
+
+
+  fprintf(
+      file,
+      "callback_index,"
+      "adc_time_s,"
+      "adc_delta_s,"
+      "pa_current_time_s,"
+      "pa_current_delta_s,"
+      "linux_time_s,"
+      "linux_delta_s,"
+      "pa_input_age_s,"
+      "clock_offset_change_s,"
+      "estimated_missing_frames,"
+      "status_flags\n");
+
+  for (size_t i = 0; i < ctx->timingEventCount; ++i) {
+    const TimingEvent *event = &ctx->timingEvents[i];
+
+    fprintf(
+        file,
+        "%" PRIu64 ","
+        "%.12f,"
+        "%.12f,"
+        "%.12f,"
+        "%.12f,"
+        "%.12f,"
+        "%.12f,"
+        "%.12f,"
+        "%.12f,"
+        "%" PRIu64 ","
+        "0x%lx\n",
+        event->callbackIndex,
+        event->adcTime,
+        event->adcDelta,
+        event->paCurrentTime,
+        event->paCurrentDelta,
+        event->linuxTime,
+        event->linuxDelta,
+        event->paInputAge,
+        event->clockOffsetChange,
+        event->estimatedMissingFrames,
+        (unsigned long)event->statusFlags);
+  }
+
+  if (fclose(file) != 0) {
+    perror("fclose");
+    return -1;
+  }
+
+  return 0;
+}
+
+static void PRINT_TIMING_SUMMARY(const StreamContext *ctx) {
+  const double expectedUs = 1.0e6 * (double)FRAMES_PER_BUFFER / SAMPLE_RATE;
+
+  const uint64_t callbacks = atomic_load_explicit(&ctx->callbackCount, memory_order_relaxed);
+  const uint64_t overflows = atomic_load_explicit(&ctx->inputOverflowCount,memory_order_relaxed);
+  const uint64_t other = atomic_load_explicit(&ctx->otherStatusCount,memory_order_relaxed);
+  const uint64_t nullInputs = atomic_load_explicit(&ctx->nullInputCount, memory_order_relaxed);
+
+  printf("\nTiming summary for %s\n", ctx->name);
+
+  printf("Expected sample-block period: %.3f us\n", expectedUs);
+
+  printf("Callbacks:                   %" PRIu64 "\n", callbacks);
+  printf("Input overflows:             %" PRIu64 "\n", overflows);
+  printf("Other status events:         %" PRIu64 "\n", other);
+  printf("Null input buffers:          %" PRIu64 "\n", nullInputs);
+
+  if (ctx->timingInitialized && ctx->minimumAdcDelta != DBL_MAX) {
+    printf("ADC delta min:              %.3f us\n", ctx->minimumAdcDelta * 1.0e6);
+  } else {
+    printf("ADC delta min:              unavailable\n");
+  }
+
+  printf("ADC delta max:              %.3f us\n", ctx->maximumAdcDelta * 1.0e6);
+  printf("PortAudio callback max:     %.3f us\n", ctx->maximumPaCurrentDelta * 1.0e6);
+  printf("Linux callback max:         %.3f us\n", ctx->maximumLinuxDelta * 1.0e6);
+  printf("PortAudio input age max:    %.3f us\n", ctx->maximumPaInputAge * 1.0e6);
+  printf("Clock offset change max:    %.3f us\n", ctx->maximumClockOffsetChange * 1.0e6);
+
+  printf("ADC discontinuities:        %" PRIu64 "\n", ctx->adcDiscontinuityCount);
+  printf("Estimated missing frames:   %" PRIu64 "\n", ctx->estimatedMissingFrames);
+  printf("Stored timing events:       %zu\n", ctx->timingEventCount);
+  printf("Discarded timing events:    %" PRIu64 "\n", ctx->discardedTimingEvents);
 }
