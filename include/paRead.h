@@ -19,7 +19,7 @@
 
 #include "ImageStreamIO/ImageStreamIO.h"
 #include "ImageStreamIO/ImageStruct.h"
-#include "common.h"
+#include "helper.h"
 
 
 #define CHANNELS 2
@@ -107,5 +107,8 @@ static void RECORD_TIMING(StreamContext *ctx,
 static int WRITE_TIMING_FILE(const char *filename, const StreamContext *ctx);
 
 static void PRINT_TIMING_SUMMARY(const StreamContext *ctx);
+
+static double per_million(uint64_t count, uint64_t callbacks);
+
 
 #endif // PAREAD_H
