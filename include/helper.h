@@ -11,7 +11,7 @@ static inline double now_sec(void)
     return (double)ts.tv_sec + 1.0e-9 * (double)ts.tv_nsec;
 }
 
-static double per_million(uint64_t count, uint64_t callbacks)
+static inline double per_million(uint64_t count, uint64_t callbacks)
 {
     if (callbacks == 0) {
         return 0.0;

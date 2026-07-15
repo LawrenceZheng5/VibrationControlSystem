@@ -5,8 +5,8 @@ echo -n performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_gove
 echo "Turning off SMT"
 echo off | sudo tee /sys/devices/system/cpu/smt/control
 
-echo "Setting swapiness to 3"
-sudo sysctl vm.swappiness=3
+echo "Setting swapiness to 10"
+sudo sysctl vm.swappiness=10
 
 echo "Locking USB IRQ to cpu 12"
 echo 12 | sudo tee /proc/irq/39/smp_affinity_list 

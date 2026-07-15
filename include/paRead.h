@@ -106,9 +106,7 @@ static void RECORD_TIMING(StreamContext *ctx,
 
 static int WRITE_TIMING_FILE(const char *filename, const StreamContext *ctx);
 
-static void PRINT_TIMING_SUMMARY(const StreamContext *ctx);
-
-static double per_million(uint64_t count, uint64_t callbacks);
+static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSeconds);
 
 
 #endif // PAREAD_H

@@ -90,24 +90,21 @@ int main() {
 
   StreamContext ctx1 = {0};
 
-  ctx1.img = &sigarray0[0];
-  ctx1.chScale[0] = 10.f / (32767.f * SC1_CH1_ACCEL_CALIBRATION);
-  ctx1.chScale[1] = 0.0f;
-  ctx1.name = "SC1";
-  ctx1.conditionerIndex = 1;
-  ctx1.timingEventCapacity = MAX_TIMING_EVENTS;
+  // ctx1.img = &sigarray0[0];
+  // ctx1.chScale[0] = 10.f / (32767.f * SC1_CH1_ACCEL_CALIBRATION);
+  // ctx1.chScale[1] = 0.0f;
+  // ctx1.name = "SC1";
+  // ctx1.conditionerIndex = 1;
+  // ctx1.timingEventCapacity = MAX_TIMING_EVENTS;
 
 
-  ctx0.timingEvents = calloc(
-    ctx0.timingEventCapacity,
-    sizeof(*ctx0.timingEvents));
+  ctx0.timingEvents = calloc(ctx0.timingEventCapacity,sizeof(*ctx0.timingEvents));
 
-  ctx1.timingEvents = calloc(
-      ctx1.timingEventCapacity,
-      sizeof(*ctx1.timingEvents));
+  // ctx1.timingEvents = calloc(
+  //     ctx1.timingEventCapacity,
+  //     sizeof(*ctx1.timingEvents));
 
-  if (ctx0.timingEvents == NULL ||
-      ctx1.timingEvents == NULL) {
+  if (ctx0.timingEvents == NULL && ctx1.timingEvents == NULL) {
 
     perror("calloc timing events");
 
@@ -124,11 +121,11 @@ int main() {
     ctx0.timingEventCapacity *
         sizeof(*ctx0.timingEvents));
 
-  memset(
-      ctx1.timingEvents,
-      0,
-      ctx1.timingEventCapacity *
-          sizeof(*ctx1.timingEvents));
+  // memset(
+  //     ctx1.timingEvents,
+  //     0,
+  //     ctx1.timingEventCapacity *
+  //         sizeof(*ctx1.timingEvents));
 
   // Debugging shm img
   uint32_t sizeL[1];
@@ -145,9 +142,10 @@ int main() {
     return 1;
   }
   
+  double acquisitionStartTime = now_sec();
 
   PaStream* stream0 = START_STREAM(SC0, &ctx0);
-  PaStream* stream1 = START_STREAM(SC1, &ctx1);
+  // PaStream* stream1 = START_STREAM(SC1, &ctx1);
   
 
   PRINT_RT_PROPERTIES(NULL);
@@ -166,29 +164,27 @@ int main() {
     }
   }
     
-  if (stream1 != NULL) {
-    PaError stopErr = Pa_StopStream(stream1);
+  // if (stream1 != NULL) {
+  //   PaError stopErr = Pa_StopStream(stream1);
 
-    if (stopErr != paNoError) {
-      fprintf(stderr, "SC1 Pa_StopStream error: %s\n", Pa_GetErrorText(stopErr));
-    }
-  }
+  //   if (stopErr != paNoError) {
+  //     fprintf(stderr, "SC1 Pa_StopStream error: %s\n", Pa_GetErrorText(stopErr));
+  //   }
+  // }
 
-  PRINT_TIMING_SUMMARY(&ctx0);
-  PRINT_TIMING_SUMMARY(&ctx1);
-
-  Pa_StopStream(stream0);
-  Pa_StopStream(stream1);
+  PRINT_TIMING_SUMMARY(&ctx0, now_sec() - acquisitionStartTime);
+  // PRINT_TIMING_SUMMARY(&ctx1, now_sec() - acquisitionStartTime);
 
   WRITE_TIMING_FILE("sc0_timing.csv", &ctx0);
-  WRITE_TIMING_FILE("sc1_timing.csv", &ctx1);
+  // WRITE_TIMING_FILE("sc1_timing.csv", &ctx1);
   free(ctx0.timingEvents);
-  free(ctx1.timingEvents);
+  // free(ctx1.timingEvents);
 
   ctx0.timingEvents = NULL;
-  ctx1.timingEvents = NULL;
+  // ctx1.timingEvents = NULL;
 
-  CLEAN_UP(stream0, stream1);
+  // CLEAN_UP(stream0, stream1);
+  CLEAN_UP(stream0, NULL);
 
 
 
@@ -267,17 +263,17 @@ static int CALLBACK(const void *inputBuffer,
   }
   
 
-  if (statusFlags  && ~paInputOverflow) {
+  if (statusFlags & ~paInputOverflow) {
     atomic_fetch_add_explicit(&ctx->otherStatusCount,1,memory_order_relaxed);
   }
 
   RECORD_TIMING(ctx, framesPerBuffer, timeInfo, statusFlags);
 
-  if (!ctx->printedRTProp) {
-    ctx->printedRTProp = 1;
+  // if (!ctx->printedRTProp) {
+  //   ctx->printedRTProp = 1;
 
-    PRINT_RT_PROPERTIES(ctx);
-  }
+  //   PRINT_RT_PROPERTIES(ctx);
+  // }
 
   if (inputBuffer == NULL) {
     atomic_fetch_add_explicit(&ctx->nullInputCount, 1, memory_order_relaxed);
@@ -494,20 +490,15 @@ static void RECORD_TIMING(StreamContext *ctx,
     ctx->estimatedMissingFrames += missingFrames;
   }
 
-  /*
-   * At FRAMES_PER_BUFFER == 1, a 2x threshold is extremely
-   * sensitive. You may initially see many ordinary scheduling
-   * delays. The events are diagnostic, not automatic proof of
-   * sample loss.
-   */
   const int adcJump = elapsedBlocks > 1;
 
-  const int paCallbackDelay    = paCurrentDelta > 2.0 * expectedDelta;
-  const int linuxCallbackDelay = linuxDelta > 2.0 * expectedDelta;
+  // Arbitrary number here tbh
+  const int severePaDelay = paCurrentDelta > 0.004;
+  const int severeLinuxDelay = linuxDelta > 0.004;
 
   const int portAudioError = statusFlags != 0;
 
-  if (adcJump || paCallbackDelay || linuxCallbackDelay || portAudioError) {
+  if (adcJump || severePaDelay || severeLinuxDelay || portAudioError) {
     if (ctx->timingEventCount < ctx->timingEventCapacity) {
       TimingEvent *event = &ctx->timingEvents[ctx->timingEventCount++];
       event->callbackIndex = atomic_load_explicit(&ctx->callbackCount,memory_order_relaxed);
@@ -594,22 +585,36 @@ static int WRITE_TIMING_FILE(const char *filename, const StreamContext *ctx)
   return 0;
 }
 
-static void PRINT_TIMING_SUMMARY(const StreamContext *ctx) {
+static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSeconds) {
   const double expectedUs = 1.0e6 * (double)FRAMES_PER_BUFFER / SAMPLE_RATE;
 
-  const uint64_t callbacks = atomic_load_explicit(&ctx->callbackCount, memory_order_relaxed);
-  const uint64_t overflows = atomic_load_explicit(&ctx->inputOverflowCount,memory_order_relaxed);
-  const uint64_t other = atomic_load_explicit(&ctx->otherStatusCount,memory_order_relaxed);
+  const uint64_t callbacks  = atomic_load_explicit(&ctx->callbackCount, memory_order_relaxed);
+  const uint64_t overflows  = atomic_load_explicit(&ctx->inputOverflowCount,memory_order_relaxed);
+  const uint64_t other      = atomic_load_explicit(&ctx->otherStatusCount,memory_order_relaxed);
   const uint64_t nullInputs = atomic_load_explicit(&ctx->nullInputCount, memory_order_relaxed);
+  const double discontinuityRate = durationSeconds > 0.0 
+        ? (double)ctx->adcDiscontinuityCount / durationSeconds
+        : 0.0;
+
+  const double missingFrameRate = durationSeconds > 0.0
+        ? (double)ctx->estimatedMissingFrames / durationSeconds
+        : 0.0;
 
   printf("\nTiming summary for %s\n", ctx->name);
 
-  printf("Expected sample-block period: %.3f us\n", expectedUs);
+  printf("Expected sample-block period:          %.3f us\n", expectedUs);
+  printf("Duration:                              %.3f s\n", durationSeconds);
+  printf("Sample rate:                           %.0f Hz\n", SAMPLE_RATE);
+  printf("Callbacks:                             %" PRIu64 "\n\n", callbacks);
 
-  printf("Callbacks:                   %" PRIu64 "\n", callbacks);
-  printf("Input overflows:             %" PRIu64 "\n", overflows);
-  printf("Other status events:         %" PRIu64 "\n", other);
-  printf("Null input buffers:          %" PRIu64 "\n", nullInputs);
+  printf("Input overflows:                       %" PRIu64 "\n", overflows);
+  printf("Other status events::                  %" PRIu64 "\n", other);
+  printf("Null input buffers:                    %" PRIu64 "\n", nullInputs);
+
+  printf("ADC discontinuities:                   %" PRIu64 "\n", ctx->adcDiscontinuityCount);
+  printf("Estimated missing frames:              %" PRIu64 "\n", ctx->estimatedMissingFrames);
+  printf("Discontinuity rate:                    %.3f / s\n", discontinuityRate);
+  printf("Estimated missing frame rate:          %.3f / s\n\n", missingFrameRate);
 
   if (ctx->timingInitialized && ctx->minimumAdcDelta != DBL_MAX) {
     printf("ADC delta min:              %.3f us\n", ctx->minimumAdcDelta * 1.0e6);
@@ -617,14 +622,12 @@ static void PRINT_TIMING_SUMMARY(const StreamContext *ctx) {
     printf("ADC delta min:              unavailable\n");
   }
 
-  printf("ADC delta max:              %.3f us\n", ctx->maximumAdcDelta * 1.0e6);
-  printf("PortAudio callback max:     %.3f us\n", ctx->maximumPaCurrentDelta * 1.0e6);
-  printf("Linux callback max:         %.3f us\n", ctx->maximumLinuxDelta * 1.0e6);
-  printf("PortAudio input age max:    %.3f us\n", ctx->maximumPaInputAge * 1.0e6);
-  printf("Clock offset change max:    %.3f us\n", ctx->maximumClockOffsetChange * 1.0e6);
+  printf("ADC delta max:                        %.3f us\n", ctx->maximumAdcDelta * 1.0e6);
+  printf("PortAudio callback max:               %.3f us\n", ctx->maximumPaCurrentDelta * 1.0e6);
+  printf("Linux callback max:                   %.3f us\n", ctx->maximumLinuxDelta * 1.0e6);
+  printf("PortAudio input age max:              %.3f us\n", ctx->maximumPaInputAge * 1.0e6);
+  printf("Clock offset change max:              %.3f us\n", ctx->maximumClockOffsetChange * 1.0e6);
 
-  printf("ADC discontinuities:        %" PRIu64 "\n", ctx->adcDiscontinuityCount);
-  printf("Estimated missing frames:   %" PRIu64 "\n", ctx->estimatedMissingFrames);
-  printf("Stored timing events:       %zu\n", ctx->timingEventCount);
-  printf("Discarded timing events:    %" PRIu64 "\n", ctx->discardedTimingEvents);
+  printf("Stored timing events:                 %zu\n", ctx->timingEventCount);
+  printf("Discarded timing events:              %" PRIu64 "\n", ctx->discardedTimingEvents);
 }
