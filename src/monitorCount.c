@@ -9,7 +9,7 @@
 #include <sys/mman.h>
 #include <time.h>
 
-#include "common.h"
+#include "helper.h"
 #include "ImageStreamIO/ImageStreamIO.h"
 #include "ImageStreamIO/ImageStruct.h"
 

@@ -10,7 +10,7 @@
 #include <time.h>
 #include <errno.h>
 
-#include "common.h"
+#include "helper.h"
 #include "ImageStreamIO/ImageStreamIO.h"
 #include "ImageStreamIO/ImageStruct.h"
 
