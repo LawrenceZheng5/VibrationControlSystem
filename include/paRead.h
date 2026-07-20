@@ -7,8 +7,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <unistd.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 #include <sched.h>
 #include <signal.h>
 #include <stdatomic.h>
@@ -42,6 +42,7 @@ typedef struct {
 
     uint64_t estimatedMissingFrames;
     PaStreamCallbackFlags statusFlags;
+    uint32_t eventReasons;
 } TimingEvent;
 
 typedef struct {
@@ -74,6 +75,18 @@ typedef struct {
     uint64_t adcDiscontinuityCount;
     uint64_t estimatedMissingFrames;
 
+    uint64_t paDelayOver2ms;
+    uint64_t paDelayOver3ms;
+    uint64_t paDelayOver4ms;
+    uint64_t paDelayOver5ms;
+    uint64_t paDelayOver10ms;
+
+    uint64_t linuxDelayOver2ms;
+    uint64_t linuxDelayOver3ms;
+    uint64_t linuxDelayOver4ms;
+    uint64_t linuxDelayOver5ms;
+    uint64_t linuxDelayOver10ms;
+
     TimingEvent *timingEvents;
     size_t timingEventCapacity;
     size_t timingEventCount;
@@ -105,6 +118,10 @@ static void RECORD_TIMING(StreamContext *ctx,
                           PaStreamCallbackFlags statusFlags);
 
 static int WRITE_TIMING_FILE(const char *filename, const StreamContext *ctx);
+
+static int WRITE_TIMING_SUMMARY_FILE(const char *filename, 
+                                     const StreamContext *ctx,
+                                     double durationSeconds);
 
 static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSeconds);
 
