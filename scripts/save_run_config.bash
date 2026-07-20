@@ -52,7 +52,7 @@ PID="$(pgrep -n -x paRead || true)"
 
     echo
     echo "Date:"
-    date --iso-8601=seconds
+    date 
 
     echo
     echo "Hostname:"

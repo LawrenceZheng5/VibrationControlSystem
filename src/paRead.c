@@ -211,10 +211,21 @@ int main(int argc, char *argv[]) {
   PRINT_TIMING_SUMMARY(&ctx0, acquistionDuration);
   PRINT_TIMING_SUMMARY(&ctx1, now_sec() - acquisitionStartTime);
 
+  fflush(stdout);
+
+  printf("Writing timing files...\n");
+  fflush(stdout);
+
   WRITE_TIMING_FILE(sc0TimingCsvPath, &ctx0);
   WRITE_TIMING_FILE(sc1TimingCsvPath, &ctx1);
   WRITE_TIMING_SUMMARY_FILE(sc0SummaryCsvPath, &ctx0, acquistionDuration);
   WRITE_TIMING_SUMMARY_FILE(sc1SummaryCsvPath, &ctx1, acquistionDuration);  
+  
+  printf("Timing files written.\n");
+  fflush(stdout);
+  
+  printf("Starting cleanup...\n");
+  fflush(stdout);
 
   free(ctx0.timingEvents);
   free(ctx1.timingEvents);
@@ -224,6 +235,9 @@ int main(int argc, char *argv[]) {
   ctx0.timingEvents = NULL;
   ctx1.timingEvents = NULL;
   outputDirectory = NULL;
+  
+  fflush(stdout);
+  fflush(stderr);
 
   CLEAN_UP(stream0, stream1);
   // CLEAN_UP(stream0, NULL);
@@ -231,6 +245,7 @@ int main(int argc, char *argv[]) {
 
 
   printf("Cleanup complete.\n");
+  fflush(stdout);
 
   return 0;
 }
