@@ -6,6 +6,7 @@ bin/*
 # Data Files
 *.txt
 *.fits
+*.log
 
 # Analysis Output files
 *.png
