@@ -18,13 +18,19 @@
 #define SC0_CH2_ACCEL_CALIBRATION 1.03
 #define SC1_CH1_ACCEL_CALIBRATION 1.034
 
-#define SEVERE_PA_DELAY_S     0.004
-#define SEVERE_LINUX_DELAY_S  0.004
+// Define thresholds for timing events
+#define SEVERE_PA_DELAY_S         0.004
+#define SEVERE_LINUX_DELAY_S      0.004
+#define TIMING_EVENT_ADC_JUMP     (1u << 0)
+#define TIMING_EVENT_PA_DELAY     (1u << 1)
+#define TIMING_EVENT_LINUX_DELAY  (1u << 2)
+#define TIMING_EVENT_PA_STATUS    (1u << 3)
 
-#define TIMING_EVENT_ADC_JUMP      (1u << 0)
-#define TIMING_EVENT_PA_DELAY      (1u << 1)
-#define TIMING_EVENT_LINUX_DELAY   (1u << 2)
-#define TIMING_EVENT_PA_STATUS     (1u << 3)
+// CPU affinity for the main thread, signal conditioner 0, signal conditioner 1, and USB IRQ handler
+#define MAIN_CPU    8
+#define SC0_CPU     10
+#define USB_IRQ_CPU 12
+#define SC1_CPU     14
 
 #define DEBUG_MARKER(img)                        \
     do {                                         \
@@ -120,6 +126,7 @@ int main(int argc, char *argv[]) {
   ctx0.chScale[0] = 10.f / (32767.f * SC0_CH1_ACCEL_CALIBRATION);
   ctx0.chScale[1] = 10.f / (32767.f * SC0_CH2_ACCEL_CALIBRATION);
   ctx0.name = "SC0";
+  ctx0.targetCpu = SC0_CPU;
   ctx0.conditionerIndex = 0;
   ctx0.timingEventCapacity = MAX_TIMING_EVENTS;
 
@@ -129,6 +136,7 @@ int main(int argc, char *argv[]) {
   ctx1.chScale[0] = 10.f / (32767.f * SC1_CH1_ACCEL_CALIBRATION);
   ctx1.chScale[1] = 0.0f;
   ctx1.name = "SC1";
+  ctx1.targetCpu = SC1_CPU;
   ctx1.conditionerIndex = 1;
   ctx1.timingEventCapacity = MAX_TIMING_EVENTS;
 
@@ -154,6 +162,11 @@ int main(int argc, char *argv[]) {
 
   memset(ctx1.timingEvents, 0, ctx1.timingEventCapacity * sizeof(*ctx1.timingEvents)); 
 
+  if (SET_CURRENT_THREAD_CPU(MAIN_CPU) != 0) {
+    perror("Failed to pin main thread");
+    return 1;
+  }
+
   // Debugging shm img
   uint32_t sizeL[1];
   sizeL[0] = 2;
@@ -172,6 +185,19 @@ int main(int argc, char *argv[]) {
 
   PaStream* stream0 = START_STREAM(SC0, &ctx0);
   PaStream* stream1 = START_STREAM(SC1, &ctx1);
+  for (int attempt = 0; attempt < 100; ++attempt) {
+      int sc0State = atomic_load_explicit(&ctx0.affinityState, memory_order_acquire);
+      int sc1State = atomic_load_explicit(&ctx1.affinityState, memory_order_acquire);
+
+      if (sc0State != 0 && sc1State != 0) {
+        break;
+      }
+
+      Pa_Sleep(10);
+  }
+
+  PRINT_CALLBACK_AFFINITY(&ctx0);
+  PRINT_CALLBACK_AFFINITY(&ctx1);
 
   double acquisitionStartTime = now_sec();
 
@@ -312,6 +338,8 @@ static int CALLBACK(const void *inputBuffer,
   (void) outputBuffer;
 
   StreamContext *ctx = (StreamContext *)userData;
+
+  SET_CALLBACK_AFFINITY(ctx);
 
   atomic_fetch_add_explicit(&ctx->callbackCount,1,memory_order_relaxed);
   
@@ -854,4 +882,64 @@ static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSecond
 
   printf("Stored timing events:                   %zu\n", ctx->timingEventCount);
   printf("Discarded timing events:                %" PRIu64 "\n", ctx->discardedTimingEvents);
+}
+
+static void SET_CALLBACK_AFFINITY(StreamContext *ctx) {
+    if (atomic_load_explicit(&ctx->affinityState, memory_order_relaxed) != 0) {
+        return;
+    }
+
+    pid_t tid = syscall(SYS_gettid);
+
+    if (ctx->targetCpu < 0 || ctx->targetCpu >= CPU_SETSIZE) {
+        atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityError, EINVAL, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
+        return;
+    }
+
+    cpu_set_t cpuMask;
+    CPU_ZERO(&cpuMask);
+    CPU_SET(ctx->targetCpu, &cpuMask);
+
+    if (sched_setaffinity(0, sizeof(cpuMask), &cpuMask) != 0) {
+        atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityError, errno, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
+        return;
+    }
+
+    atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+    atomic_store_explicit(&ctx->callbackCpu, sched_getcpu(), memory_order_relaxed);
+    atomic_store_explicit(&ctx->affinityState, 1, memory_order_release);
+}
+
+static int SET_CURRENT_THREAD_CPU(int cpu) {
+    if (cpu < 0 || cpu >= CPU_SETSIZE) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    cpu_set_t cpuMask;
+    CPU_ZERO(&cpuMask);
+    CPU_SET(cpu, &cpuMask);
+
+    return sched_setaffinity(0, sizeof(cpuMask), &cpuMask);
+}
+
+static void PRINT_CALLBACK_AFFINITY(const StreamContext *ctx) {
+    int state = atomic_load_explicit(&ctx->affinityState, memory_order_acquire);
+    int tid = atomic_load_explicit(&ctx->callbackTid, memory_order_relaxed);
+
+    if (state == 1) {
+        int cpu = atomic_load_explicit(&ctx->callbackCpu, memory_order_relaxed);
+
+        printf("%s callback TID %d pinned to CPU %d\n", ctx->name, tid, cpu);
+    } else if (state == -1) {
+        int errorNumber = atomic_load_explicit(&ctx->affinityError, memory_order_relaxed);
+
+        printf("%s callback TID %d affinity failed: %s\n", ctx->name, tid, strerror(errorNumber));
+    } else {
+        printf("%s callback affinity has not been configured yet.\n", ctx->name);
+    }
 }

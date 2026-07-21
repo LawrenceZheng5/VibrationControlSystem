@@ -16,6 +16,7 @@
 #include <math.h>
 #include <float.h>
 #include <inttypes.h>
+#include <errno.h>
 
 #include "ImageStreamIO/ImageStreamIO.h"
 #include "ImageStreamIO/ImageStruct.h"
@@ -51,6 +52,12 @@ typedef struct {
     const char *name;
     int printedRTProp;
     int conditionerIndex;
+
+    int targetCpu;
+    _Atomic int affinityState;
+    _Atomic int callbackTid;
+    _Atomic int callbackCpu;
+    _Atomic int affinityError;
 
     _Atomic uint64_t callbackCount;
     _Atomic uint64_t inputOverflowCount;
@@ -124,6 +131,13 @@ static int WRITE_TIMING_SUMMARY_FILE(const char *filename,
                                      double durationSeconds);
 
 static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSeconds);
+
+static void SET_CALLBACK_AFFINITY(StreamContext *ctx);
+
+static int SET_CURRENT_THREAD_CPU(int cpu);
+
+static void PRINT_CALLBACK_AFFINITY(const StreamContext *ctx);
+
 
 
 #endif // PAREAD_H

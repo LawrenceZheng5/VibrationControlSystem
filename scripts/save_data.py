@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-STREAM_NAMES = ["sig00",]
+STREAM_NAMES = ["sig00"]
 CUBE_SIZE = 85000
 TMUX_SESSION = "milkFITSlogger"
 
