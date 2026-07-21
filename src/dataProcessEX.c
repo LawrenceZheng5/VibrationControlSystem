@@ -1,4 +1,5 @@
 /*
+ * Example code taken from ImageStreamIO/ImCreate_test.c
  * Example code to write image in shared memory
  *
  * compile with:

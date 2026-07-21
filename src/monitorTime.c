@@ -1,3 +1,9 @@
+/* 
+ * Monitor the timing of a signal stream based off the timestamps between data points.
+ * Reader waits for semphmore and reads/pulls it to zero.
+ * Kinda deprecated because adding a separate program as a reader introduces 
+ * other issues with timing. Better to just add a monitor to the main program that is reading the stream.
+ */
 #define _GNU_SOURCE
 
 #include <stdio.h>
