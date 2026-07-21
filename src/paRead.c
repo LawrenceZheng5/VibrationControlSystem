@@ -50,6 +50,8 @@ static volatile sig_atomic_t keepRunning = 1;
 
 
 int main(int argc, char *argv[]) {
+  // Handle signals for graceful termination
+  // SIGINT (Ctrl+C), SIGTERM, and SIGQUIT 
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = HANDLE_SIGNAL;
@@ -68,6 +70,18 @@ int main(int argc, char *argv[]) {
   if (sigaction(SIGQUIT, &sa, NULL) != 0) {
     perror("sigaction SIGQUIT");
     return 1;
+  }
+
+  // Hande SIGPIPE to avoid termination when writing to a closed pipe/socket 
+  // ie for when using in conjunction with tee to save conole output to file
+  struct sigaction ignorePipe;
+  memset(&ignorePipe, 0, sizeof(ignorePipe));
+  ignorePipe.sa_handler = SIG_IGN;
+  sigemptyset(&ignorePipe.sa_mask);
+
+  if (sigaction(SIGPIPE, &ignorePipe, NULL) != 0) {
+      perror("sigaction SIGPIPE");
+      return 1;
   }
 
 
@@ -868,12 +882,11 @@ static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSecond
         ctx->linuxDelayOver10ms, rate_per_second(ctx->linuxDelayOver10ms, durationSeconds));
 
   if (ctx->timingInitialized && ctx->minimumAdcDelta != DBL_MAX) {
-  printf("ADC delta min:                          %.3f us\n", ctx->minimumAdcDelta * 1.0e6);
+    printf("\nADC delta min:                          %.3f us\n", ctx->minimumAdcDelta * 1.0e6);
   } else {
     printf("ADC delta min:              unavailable\n");
   }
 
-  printf("\n");
   printf("ADC delta max:                          %.3f us\n", ctx->maximumAdcDelta * 1.0e6);
   printf("PortAudio callback max:                 %.3f us\n", ctx->maximumPaCurrentDelta * 1.0e6);
   printf("Linux callback max:                     %.3f us\n", ctx->maximumLinuxDelta * 1.0e6);
