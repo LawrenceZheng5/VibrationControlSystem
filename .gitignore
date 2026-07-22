@@ -4,11 +4,5 @@ bin/*
 .vscode/
 .venv/
 
-# Data Files
-*.txt
-*.fits
-*.log
-
-# Analysis Output files
-*.png
-*.csv
+# Data Folder
+data/raw/*
