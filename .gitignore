@@ -6,3 +6,5 @@ bin/*
 
 # Data Folder
 data/raw/*
+
+milkscriptcmd.log
