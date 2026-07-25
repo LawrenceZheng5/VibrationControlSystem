@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
 
   // For Accels on SC0
   sigarray0 = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
-  ImageStreamIO_createIm(&sigarray0[0], "sig00", naxis, size, atype, shared, NBkw, CBsize);
+  ImageStreamIO_createIm(&sigarray0[0], "accel", naxis, size, atype, shared, NBkw, CBsize);
 
   StreamContext ctx0 = {0};
 
