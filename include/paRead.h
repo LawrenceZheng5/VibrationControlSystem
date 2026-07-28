@@ -132,7 +132,7 @@ static int WRITE_TIMING_SUMMARY_FILE(const char *filename,
 
 static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSeconds);
 
-static void SET_CALLBACK_AFFINITY(StreamContext *ctx);
+// static void SET_CALLBACK_AFFINITY(StreamContext *ctx);
 
 static int SET_CURRENT_THREAD_CPU(int cpu);
 

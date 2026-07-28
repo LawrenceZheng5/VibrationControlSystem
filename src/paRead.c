@@ -4,7 +4,7 @@
 
 
 #define NUM_SC 2
-#define SAMPLE_RATE 16000.00
+#define SAMPLE_RATE 8000.00
 #define SAMPLE_FORMAT paInt16
 #define FRAMES_PER_BUFFER 1
 
@@ -353,7 +353,7 @@ static int CALLBACK(const void *inputBuffer,
 
   StreamContext *ctx = (StreamContext *)userData;
 
-  SET_CALLBACK_AFFINITY(ctx);
+  // SET_CALLBACK_AFFINITY(ctx);
 
   atomic_fetch_add_explicit(&ctx->callbackCount,1,memory_order_relaxed);
   
@@ -897,35 +897,35 @@ static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSecond
   printf("Discarded timing events:                %" PRIu64 "\n", ctx->discardedTimingEvents);
 }
 
-static void SET_CALLBACK_AFFINITY(StreamContext *ctx) {
-    if (atomic_load_explicit(&ctx->affinityState, memory_order_relaxed) != 0) {
-        return;
-    }
+// static void SET_CALLBACK_AFFINITY(StreamContext *ctx) {
+//     if (atomic_load_explicit(&ctx->affinityState, memory_order_relaxed) != 0) {
+//         return;
+//     }
 
-    pid_t tid = syscall(SYS_gettid);
+//     pid_t tid = syscall(SYS_gettid);
 
-    if (ctx->targetCpu < 0 || ctx->targetCpu >= CPU_SETSIZE) {
-        atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
-        atomic_store_explicit(&ctx->affinityError, EINVAL, memory_order_relaxed);
-        atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
-        return;
-    }
+//     if (ctx->targetCpu < 0 || ctx->targetCpu >= CPU_SETSIZE) {
+//         atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+//         atomic_store_explicit(&ctx->affinityError, EINVAL, memory_order_relaxed);
+//         atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
+//         return;
+//     }
 
-    cpu_set_t cpuMask;
-    CPU_ZERO(&cpuMask);
-    CPU_SET(ctx->targetCpu, &cpuMask);
+//     cpu_set_t cpuMask;
+//     CPU_ZERO(&cpuMask);
+//     CPU_SET(ctx->targetCpu, &cpuMask);
 
-    if (sched_setaffinity(0, sizeof(cpuMask), &cpuMask) != 0) {
-        atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
-        atomic_store_explicit(&ctx->affinityError, errno, memory_order_relaxed);
-        atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
-        return;
-    }
+//     if (sched_setaffinity(0, sizeof(cpuMask), &cpuMask) != 0) {
+//         atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+//         atomic_store_explicit(&ctx->affinityError, errno, memory_order_relaxed);
+//         atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
+//         return;
+//     }
 
-    atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
-    atomic_store_explicit(&ctx->callbackCpu, sched_getcpu(), memory_order_relaxed);
-    atomic_store_explicit(&ctx->affinityState, 1, memory_order_release);
-}
+//     atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+//     atomic_store_explicit(&ctx->callbackCpu, sched_getcpu(), memory_order_relaxed);
+//     atomic_store_explicit(&ctx->affinityState, 1, memory_order_release);
+// }
 
 static int SET_CURRENT_THREAD_CPU(int cpu) {
     if (cpu < 0 || cpu >= CPU_SETSIZE) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Analyze milk-streamFITSlog FITS cubes from sig00.
+Analyze milk-streamFITSlog FITS cubes from "accel" stream.
 
 Expected acquisition layout from paRead:
 
@@ -18,8 +18,7 @@ Each frame contains:
 
 The C indexing is:
 
-    index = ch + CHANNELS * conditionerIndex
-              + CHANNELS * NUM_SC * frame
+    index = ch + CHANNELS * conditionerIndex + CHANNELS * NUM_SC * frame
 
 So the flattened order per frame is:
 
@@ -38,7 +37,7 @@ from astropy.io import fits
 from scipy.signal import welch, spectrogram, find_peaks
 
 
-SAMPLE_RATE = 8000.0  # Hz
+SAMPLE_RATE = 16000.0  # Hz
 
 CHANNEL_NAMES = [
     "SC0_CH1",

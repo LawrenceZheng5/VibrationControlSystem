@@ -67,6 +67,7 @@ def main():
     for stream in STREAM_NAMES:
         run_cmd([
             "milk-streamFITSlog",
+            "-r",
             "-D", str(data_dir / stream),
             "-z", str(CUBE_SIZE),
             stream,
