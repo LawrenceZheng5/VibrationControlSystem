@@ -10,6 +10,14 @@ STREAM_NAMES = ["accel"]
 CUBE_SIZE = 85000
 TMUX_SESSION = "milkFITSlogger"
 
+SAMPLE_RATE = 8000
+
+# 7pm to 7am 
+RUN_HOURS = 12
+
+# Add a 5% margin so the logger limit is not reached before timeout/Ctrl+C.
+MAX_FRAMES = int(SAMPLE_RATE * RUN_HOURS * 3600 * 1.05)
+
 
 def run_cmd(cmd, check=True, suppress_stderr=False):
     stderr = subprocess.DEVNULL if suppress_stderr else None
@@ -70,6 +78,7 @@ def main():
             "-r",
             "-D", str(data_dir / stream),
             "-z", str(CUBE_SIZE),
+            "-n", str(MAX_FRAMES),
             stream,
             "pstart",
         ])

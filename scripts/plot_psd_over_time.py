@@ -411,13 +411,13 @@ def main() -> int:
     data_dir = (
         args.data_dir.expanduser().resolve()
         if args.data_dir is not None
-        else manifest_path.parent
+        else manifest_path.parent / "accel"
     )
 
     output_dir = (
         args.output_dir.expanduser().resolve()
         if args.output_dir is not None
-        else manifest_path.parent.parent / "psd_plots"
+        else manifest_path.parent / "psd_plots"
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
