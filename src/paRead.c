@@ -897,6 +897,14 @@ static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSecond
   printf("Discarded timing events:                %" PRIu64 "\n", ctx->discardedTimingEvents);
 }
 
+// Commented out for now, as it was causing issues with PortAudio callbacks and CPU affinity
+// When analyzing with analyze_timing.py, the jump rate was about double what it was without the setting 
+// the CPU affinity. I think has to do with both callbacks posting semaphore to the same shm img, 
+// and the CPU affinity causing one callback to be delayed more than the other. Causing drops and inaccurate readings.
+// Not fully sure if the Z axis (sc1_ch1) data is accurate. Would probably be fixed if port audio callbacks writes to a buffer 
+// and seperate thread synchronizes the buffer to shm img. But for now, just leaving it commented out due to limited time. 
+// Just want to have reliable enough data to present and show at the symposium. 
+
 // static void SET_CALLBACK_AFFINITY(StreamContext *ctx) {
 //     if (atomic_load_explicit(&ctx->affinityState, memory_order_relaxed) != 0) {
 //         return;
