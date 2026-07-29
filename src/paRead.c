@@ -157,19 +157,22 @@ int main(int argc, char *argv[]) {
 
   ctx0.timingEvents = calloc(ctx0.timingEventCapacity,sizeof(*ctx0.timingEvents));
 
-  ctx1.timingEvents = calloc(
-      ctx1.timingEventCapacity,
-      sizeof(*ctx1.timingEvents));
+  ctx1.timingEvents = calloc(ctx1.timingEventCapacity,sizeof(*ctx1.timingEvents));
 
-  if (ctx0.timingEvents == NULL && ctx1.timingEvents == NULL) {
+  if (ctx0.timingEvents == NULL) {
+      perror("calloc SC0 timing events");
+      CLEAN_UP(NULL, NULL);
+      free(outputDirectory);
+      return 1;
+  }
 
-    perror("calloc timing events");
-
-    free(ctx0.timingEvents);
-    free(ctx1.timingEvents);
-
-    CLEAN_UP(NULL, NULL);
-    return 1;
+  if (ctx1.timingEvents == NULL) {
+      perror("calloc SC1 timing events");
+      free(ctx0.timingEvents);
+      ctx0.timingEvents = NULL;
+      CLEAN_UP(NULL, NULL);
+      free(outputDirectory);
+      return 1;
   }
 
   memset(ctx0.timingEvents, 0, ctx0.timingEventCapacity * sizeof(*ctx0.timingEvents));
