@@ -286,7 +286,7 @@ def make_psd_plot(
         times,
         psd.T,
         shading="auto",
-        cmap="turbo",
+        cmap="inferno",
         norm=LogNorm(vmin=vmin, vmax=vmax),
     )
 
