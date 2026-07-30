@@ -25,8 +25,9 @@ SAMPLE_RATE = 8000
 
 # 7pm to 7am 
 RUN_HOURS = 12
-NUM_STREAM_WRITERS = 2
-STREAM_UPDATE_RATE = SAMPLE_RATE * NUM_STREAM_WRITERS
+
+STREAM_UPDATE_RATE = SAMPLE_RATE
+
 
 # Add a 5% margin so the logger limit is not reached before timeout/Ctrl+C.
 MAX_FRAMES = int(STREAM_UPDATE_RATE * RUN_HOURS * 3600 * 1.05)
