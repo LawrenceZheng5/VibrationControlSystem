@@ -383,14 +383,14 @@ def main() -> int:
     parser.add_argument(
         "--vmin",
         type=float,
-        default=1.0e-10,
-        help="Log color-scale minimum (default: 1e-10)",
+        default=1.0e-9,
+        help="Log color-scale minimum (default: 1e-9)",
     )
     parser.add_argument(
         "--vmax",
         type=float,
-        default=1.0e-6,
-        help="Log color-scale maximum (default: 1e-6)",
+        default=1.0e-5,
+        help="Log color-scale maximum (default: 1e-5)",
     )
     parser.add_argument(
         "--output-dir",
