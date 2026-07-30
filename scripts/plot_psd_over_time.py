@@ -293,7 +293,7 @@ def make_psd_plot(
     axis.set_xlim(0.0, max_frequency)
     axis.set_xlabel("Frequency [Hz]")
     axis.set_ylabel("Time [s]")
-    axis.set_title(f"{label}\nStart: {start_utc}")
+    axis.set_title(f"{label}\nStart: {start_utc} UTC")
 
     colorbar = figure.colorbar(image, ax=axis)
     colorbar.set_label(
