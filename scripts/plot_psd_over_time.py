@@ -8,17 +8,16 @@ Channel labels:
     SC0_CH2 -> Y
     SC1_CH1 -> Z
 
-Important for the current acquisition/logger format:
-The FITS logger stores an entire shared-memory snapshot on every semaphore post.
-The uploaded example data show that rows tagged cnt1 == 1 are not usable as
-standalone SC1 snapshots. Therefore this script uses cnt1 == 0 snapshots:
-    X = data[:, 0, 0]
-    Y = data[:, 0, 1]
-    Z = data[:, 1, 0]  (latest Z value present in that snapshot)
+Current acquisition format:
+    A dedicated publisher thread matches SC0 and SC1 samples.
+    Each semaphore post contains one complete synchronized frame:
 
-This is suitable for the requested low-frequency plot (default 0-30 Hz).
+        X = data[:, 0, 0]
+        Y = data[:, 0, 1]
+        Z = data[:, 1, 0]
+
+    data[:, 1, 1] is unused.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -65,22 +64,22 @@ def resolve_file(data_dir: Path, value: str) -> Path:
     return path if path.is_absolute() else data_dir / path
 
 
-def load_cube_snapshots(
+def load_cube_frames(
     fits_path: Path,
-    timing_path: Path,
 ) -> dict[str, np.ndarray]:
     """
-    Load one FITS cube and extract X, Y, and Z from cnt1 == 0 snapshots.
+    Load one FITS cube.
+
+    Every FITS frame is one complete synchronized publication:
+        X = SC0_CH1
+        Y = SC0_CH2
+        Z = SC1_CH1
     """
     if not fits_path.exists():
         raise FileNotFoundError(f"Missing FITS file: {fits_path}")
-    if not timing_path.exists():
-        raise FileNotFoundError(f"Missing timing file: {timing_path}")
 
     with fits.open(fits_path, memmap=True) as hdul:
         data = np.asarray(hdul[0].data)
-
-    timing = np.loadtxt(timing_path, comments="#", ndmin=2)
 
     if data.ndim != 3 or data.shape[1:] != (2, 2):
         raise ValueError(
@@ -88,34 +87,11 @@ def load_cube_snapshots(
             f"found {data.shape}"
         )
 
-    if timing.shape[1] < 7:
-        raise ValueError(
-            f"{timing_path}: expected at least 7 timing columns, "
-            f"found {timing.shape[1]}"
-        )
-
-    if len(data) != len(timing):
-        count = min(len(data), len(timing))
-        print(
-            f"WARNING: {fits_path.name} has {len(data)} FITS frames but "
-            f"{len(timing)} timing rows; using the first {count}.",
-            file=sys.stderr,
-        )
-        data = data[:count]
-        timing = timing[:count]
-
-    # Timing column 7 (zero-based index 6) is stream cnt1:
-    # 0 means SC0 wrote most recently; 1 means SC1 wrote most recently.
-    snapshot_mask = timing[:, 6].astype(np.int64) == 0
-
-    if not np.any(snapshot_mask):
-        raise ValueError(f"{timing_path}: contains no cnt1 == 0 snapshots")
-
     snapshots: dict[str, np.ndarray] = {}
 
     for label, (conditioner, channel) in CHANNELS.items():
         values = np.asarray(
-            data[snapshot_mask, conditioner, channel],
+            data[:, conditioner, channel],
             dtype=np.float64,
         )
 
@@ -182,14 +158,10 @@ def stream_filter_and_downsample(
 
     for cube_number, row in enumerate(rows, start=1):
         fits_path = resolve_file(data_dir, row["fits_file"])
-        timing_path = resolve_file(data_dir, row["timing_file"])
 
-        print(
-            f"[{cube_number}/{len(rows)}] "
-            f"{fits_path.name}"
-        )
+        print(f"[{cube_number}/{len(rows)}] "f"{fits_path.name}")
 
-        cube = load_cube_snapshots(fits_path, timing_path)
+        cube = load_cube_frames(fits_path)
         cube_length = len(cube["X"])
 
         if any(len(cube[label]) != cube_length for label in CHANNELS):
@@ -383,14 +355,14 @@ def main() -> int:
     parser.add_argument(
         "--vmin",
         type=float,
-        default=1.0e-10,
-        help="Log color-scale minimum (default: 1e-10)",
+        default=1.0e-9,
+        help="Log color-scale minimum (default: 1e-9)",
     )
     parser.add_argument(
         "--vmax",
         type=float,
-        default=1.0e-6,
-        help="Log color-scale maximum (default: 1e-6)",
+        default=1.0e-5,
+        help="Log color-scale maximum (default: 1e-5)",
     )
     parser.add_argument(
         "--output-dir",
@@ -430,8 +402,7 @@ def main() -> int:
     print(f"Segment: {args.segment}")
     print(f"Cubes: {len(rows)}")
     print("Channel labels: X=SC0_CH1, Y=SC0_CH2, Z=SC1_CH1")
-    print("Using cnt1 == 0 synchronized/latest-value snapshots.")
-
+    print("Using every FITS frame as one synchronized X/Y/Z sample.")
     signals = stream_filter_and_downsample(
         rows=rows,
         data_dir=data_dir,

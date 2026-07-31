@@ -27,10 +27,11 @@
 #define TIMING_EVENT_PA_STATUS    (1u << 3)
 
 // CPU affinity for the main thread, signal conditioner 0, signal conditioner 1, and USB IRQ handler
-#define MAIN_CPU    8
-#define SC0_CPU     10
-#define USB_IRQ_CPU 12
-#define SC1_CPU     14
+// #define PUBLISHER_CPU    8
+#define SC0_CPU         10
+// Don't pin any thing to USB_IRQ CPU
+#define USB_IRQ_CPU     12
+#define SC1_CPU         14
 
 #define DEBUG_MARKER(img)                        \
     do {                                         \
@@ -259,19 +260,19 @@ int main(int argc, char *argv[]) {
   }
   double acquisitionStartTime = now_sec();
 
-  // for (int attempt = 0; attempt < 100; ++attempt) {
-  //     int sc0State = atomic_load_explicit(&ctx0.affinityState, memory_order_acquire);
-  //     int sc1State = atomic_load_explicit(&ctx1.affinityState, memory_order_acquire);
+  for (int attempt = 0; attempt < 100; ++attempt) {
+      int sc0State = atomic_load_explicit(&ctx0.affinityState, memory_order_acquire);
+      int sc1State = atomic_load_explicit(&ctx1.affinityState, memory_order_acquire);
 
-  //     if (sc0State != 0 && sc1State != 0) {
-  //       break;
-  //     }
+      if (sc0State != 0 && sc1State != 0) {
+        break;
+      }
 
-  //     Pa_Sleep(10);
-  // }
+      Pa_Sleep(10);
+  }
 
-  // PRINT_CALLBACK_AFFINITY(&ctx0);
-  // PRINT_CALLBACK_AFFINITY(&ctx1);
+  PRINT_CALLBACK_AFFINITY(&ctx0);
+  PRINT_CALLBACK_AFFINITY(&ctx1);
 
 
   printf("Acquisition started at: %f\n", acquisitionStartTime);
@@ -516,17 +517,11 @@ static void PUBLISH_COMPLETE_FRAME(PublisherContext *publisher, const QueuedSamp
     * index 2 = SC1 channel 1 = Z
     * index 3 = unused
     */
-  buffer[0] =
-      (float)sc0Sample->channel[0] *
-      publisher->sc0Scale[0];
+  buffer[0] = (float)sc0Sample->channel[0] * publisher->sc0Scale[0];
 
-  buffer[1] =
-      (float)sc0Sample->channel[1] *
-      publisher->sc0Scale[1];
+  buffer[1] = (float)sc0Sample->channel[1] * publisher->sc0Scale[1];
 
-  buffer[2] =
-      (float)sc1Sample->channel[0] *
-      publisher->sc1Scale[0];
+  buffer[2] = (float)sc1Sample->channel[0] * publisher->sc1Scale[0];
 
   buffer[3] = 0.0f;
 
@@ -551,19 +546,18 @@ static void PUBLISH_COMPLETE_FRAME(PublisherContext *publisher, const QueuedSamp
 }
 
 static void *PUBLISHER_THREAD(void *argument) {
-  PublisherContext *publisher =
-      (PublisherContext *)argument;
+  PublisherContext *publisher = (PublisherContext *)argument;
 
+  // if (SET_CURRENT_THREAD_CPU(PUBLISHER_CPU) != 0) {
+  //       perror("Failed to pin publisher thread");
+  // }
   QueuedSample sc0Sample = {0};
   QueuedSample sc1Sample = {0};
 
   bool haveSc0 = false;
   bool haveSc1 = false;
 
-  const struct timespec idleSleep = {
-    .tv_sec = 0,
-    .tv_nsec = 20000
-  };
+  const struct timespec idleSleep = {.tv_sec = 0, .tv_nsec = 20000};
 
   while (true) {
     bool madeProgress = false;
@@ -598,47 +592,40 @@ static void *PUBLISHER_THREAD(void *argument) {
               &sc1Sample
           );
 
-          publisher->accumulatedAbsoluteSkewSeconds +=
-              absoluteSkewSeconds;
+          publisher->accumulatedAbsoluteSkewSeconds += absoluteSkewSeconds;
 
           if (absoluteSkewSeconds > publisher->maximumAbsoluteSkewSeconds) {
-            publisher->maximumAbsoluteSkewSeconds =
-                absoluteSkewSeconds;
+            publisher->maximumAbsoluteSkewSeconds = absoluteSkewSeconds;
           }
 
           haveSc0 = false;
           haveSc1 = false;
           continue;
+        }
+
+        /*
+          * Discard whichever sample is older.
+          *
+          * The next sample from that conditioner should
+          * be closer to the other conditioner's sample.
+          */
+        if (skewSeconds < 0.0) {
+            publisher->unmatchedSc0++;
+            haveSc0 = false;
+        } else {
+            publisher->unmatchedSc1++;
+            haveSc1 = false;
+        }
+
+        continue;
       }
 
-          /*
-            * Discard whichever sample is older.
-            *
-            * The next sample from that conditioner should
-            * be closer to the other conditioner's sample.
-            */
-          if (skewSeconds < 0.0) {
-              publisher->unmatchedSc0++;
-              haveSc0 = false;
-          } else {
-              publisher->unmatchedSc1++;
-              haveSc1 = false;
-          }
-
-          continue;
-      }
-
-      const bool stopping = atomic_load_explicit(
-          &publisher->stopRequested,
-          memory_order_acquire
-      ) != 0;
+      const bool stopping = atomic_load_explicit(&publisher->stopRequested, memory_order_acquire) != 0;
 
       if (stopping) {
-          const bool sc0Empty =
-              SAMPLE_QUEUE_EMPTY(publisher->sc0Queue);
+          const bool sc0Empty = SAMPLE_QUEUE_EMPTY(publisher->sc0Queue);
 
-          const bool sc1Empty =
-              SAMPLE_QUEUE_EMPTY(publisher->sc1Queue);
+          const bool sc1Empty = SAMPLE_QUEUE_EMPTY(publisher->sc1Queue);
 
           /*
             * Drain unmatched samples after both PortAudio
@@ -656,12 +643,7 @@ static void *PUBLISHER_THREAD(void *argument) {
               continue;
           }
 
-          if (
-              !haveSc0 &&
-              !haveSc1 &&
-              sc0Empty &&
-              sc1Empty
-          ) {
+          if (!haveSc0 && !haveSc1 && sc0Empty && sc1Empty) {
               break;
           }
       }
@@ -1283,32 +1265,32 @@ static void SET_CALLBACK_AFFINITY(StreamContext *ctx) {
     atomic_store_explicit(&ctx->affinityState, 1, memory_order_release);
 }
 
-// static int SET_CURRENT_THREAD_CPU(int cpu) {
-//     if (cpu < 0 || cpu >= CPU_SETSIZE) {
-//         errno = EINVAL;
-//         return -1;
-//     }
+static int SET_CURRENT_THREAD_CPU(int cpu) {
+    if (cpu < 0 || cpu >= CPU_SETSIZE) {
+        errno = EINVAL;
+        return -1;
+    }
 
-//     cpu_set_t cpuMask;
-//     CPU_ZERO(&cpuMask);
-//     CPU_SET(cpu, &cpuMask);
+    cpu_set_t cpuMask;
+    CPU_ZERO(&cpuMask);
+    CPU_SET(cpu, &cpuMask);
 
-//     return sched_setaffinity(0, sizeof(cpuMask), &cpuMask);
-// }
+    return sched_setaffinity(0, sizeof(cpuMask), &cpuMask);
+}
 
-// static void PRINT_CALLBACK_AFFINITY(const StreamContext *ctx) {
-//     int state = atomic_load_explicit(&ctx->affinityState, memory_order_acquire);
-//     int tid = atomic_load_explicit(&ctx->callbackTid, memory_order_relaxed);
+static void PRINT_CALLBACK_AFFINITY(const StreamContext *ctx) {
+    int state = atomic_load_explicit(&ctx->affinityState, memory_order_acquire);
+    int tid = atomic_load_explicit(&ctx->callbackTid, memory_order_relaxed);
 
-//     if (state == 1) {
-//         int cpu = atomic_load_explicit(&ctx->callbackCpu, memory_order_relaxed);
+    if (state == 1) {
+        int cpu = atomic_load_explicit(&ctx->callbackCpu, memory_order_relaxed);
 
-//         printf("%s callback TID %d pinned to CPU %d\n", ctx->name, tid, cpu);
-//     } else if (state == -1) {
-//         int errorNumber = atomic_load_explicit(&ctx->affinityError, memory_order_relaxed);
+        printf("%s callback TID %d pinned to CPU %d\n", ctx->name, tid, cpu);
+    } else if (state == -1) {
+        int errorNumber = atomic_load_explicit(&ctx->affinityError, memory_order_relaxed);
 
-//         printf("%s callback TID %d affinity failed: %s\n", ctx->name, tid, strerror(errorNumber));
-//     } else {
-//         printf("%s callback affinity has not been configured yet.\n", ctx->name);
-//     }
-// }
+        printf("%s callback TID %d affinity failed: %s\n", ctx->name, tid, strerror(errorNumber));
+    } else {
+        printf("%s callback affinity has not been configured yet.\n", ctx->name);
+    }
+}

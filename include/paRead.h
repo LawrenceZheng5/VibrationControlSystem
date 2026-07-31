@@ -224,9 +224,9 @@ static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSecond
 
 static void SET_CALLBACK_AFFINITY(StreamContext *ctx);
 
-// static int SET_CURRENT_THREAD_CPU(int cpu);
+static int SET_CURRENT_THREAD_CPU(int cpu);
 
-// static void PRINT_CALLBACK_AFFINITY(const StreamContext *ctx);
+static void PRINT_CALLBACK_AFFINITY(const StreamContext *ctx);
 
 
 

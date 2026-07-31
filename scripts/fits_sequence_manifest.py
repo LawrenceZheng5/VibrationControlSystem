@@ -28,6 +28,7 @@ SECONDS_PER_DAY = 86400.0
 @dataclass
 class Cube:
     fits_path: Path
+    effective_rate_hz: float | None
     timing_path: Path | None
     start_unix: float
     end_unix: float
@@ -108,6 +109,11 @@ def inspect_cube(fits_path: Path) -> Cube:
         # col4 = Absolute time (logging)
         start_unix = float(first[3])
         end_unix = float(last[3])
+        duration_s = end_unix - start_unix
+
+        usable_frames = (min(nframes, timing_rows) if timing_rows is not None else nframes)
+
+        effective_rate_hz = ((usable_frames - 1) / duration_s if usable_frames > 1 and duration_s > 0.0 else None)
         first_main = int(first[1])
         last_main = int(last[1])
     elif mjd_start is not None and mjd_end is not None:
@@ -129,6 +135,7 @@ def inspect_cube(fits_path: Path) -> Cube:
         last_main=last_main,
         timing_rows=timing_rows,
         nframes=nframes,
+        effective_rate_hz=effective_rate_hz,
     )
 
 
@@ -169,10 +176,7 @@ def assign_segments(cubes: list[Cube], max_gap_s: float) -> None:
             continue
 
         if cube.first_main is not None and previous.last_main is not None:
-            cube.missing_updates_before = max(
-                cube.first_main - previous.last_main - 1,
-                0,
-            )
+            cube.missing_updates_before = max(cube.first_main - previous.last_main - 1, 0,)
 
         cube.status = "CONTIGUOUS"
 
@@ -197,6 +201,7 @@ def write_manifest(cubes: list[Cube], path: Path) -> None:
         "wall_gap_before_s",
         "missing_updates_before",
         "status",
+        "effective_rate_hz",
     ]
 
     with path.open("w", newline="", encoding="utf-8") as file:
@@ -250,6 +255,11 @@ def write_manifest(cubes: list[Cube], path: Path) -> None:
                         else ""
                     ),
                     "status": cube.status,
+                    "effective_rate_hz": (
+                        f"{cube.effective_rate_hz:.6f}"
+                        if cube.effective_rate_hz is not None
+                        else ""
+                    ),
                 }
             )
 
@@ -292,21 +302,19 @@ def main() -> int:
 
     print(
         f"{'SEQ':>3} {'SEG':>3} {'START UTC':26} "
-        f"{'FIRST':>10} {'LAST':>10} {'MISS':>6}  FILE"
+        f"{'FIRST':>10} {'LAST':>10} {'MISS':>6}   {'RATE':>8}  {'FILE'}"
     )
     for sequence, cube in enumerate(cubes, start=1):
-        missing = (
-            str(cube.missing_updates_before)
-            if cube.missing_updates_before is not None
-            else "-"
-        )
+        missing = (str(cube.missing_updates_before) if cube.missing_updates_before is not None else "-")
         first = str(cube.first_main) if cube.first_main is not None else "-"
         last = str(cube.last_main) if cube.last_main is not None else "-"
+        rate = (f"{cube.effective_rate_hz:.1f}" if cube.effective_rate_hz is not None else "-")
 
         print(
             f"{sequence:3d} {cube.segment:3d} "
             f"{utc_string(cube.start_unix):26} "
             f"{first:>10} {last:>10} {missing:>6}  "
+            f"{rate:>8} Hz  "
             f"{cube.fits_path.name}"
         )
 
