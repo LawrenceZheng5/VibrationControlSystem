@@ -2,8 +2,6 @@
 
 Real-time acquisition, shared-memory streaming, FITS logging, and analysis tools for characterizing mechanical vibrations at the Subaru Telescope and supporting future vibration correction in SCExAO.
 
-> **Project status:** Active research prototype. This README describes the synchronized publisher implementation currently developed on `semaphore_separate_portaudio_callback`. Remove this note after the branch is merged into `main`.
-
 ## Overview
 
 Mechanical vibrations from the telescope drive system, encoders, wind loading, and other mechanisms can degrade high-angular-resolution observations. This project measures those vibrations with accelerometers, publishes synchronized acceleration samples to a `milk`/ImageStreamIO shared-memory stream, records the stream as FITS cubes, and provides tools for continuity and power spectral density analysis.
@@ -102,12 +100,6 @@ The checked-in values match one specific acquisition computer. In particular, `s
 ```bash
 git clone https://github.com/LawrenceZheng5/VibrationControlSystem.git
 cd VibrationControlSystem
-```
-
-To reproduce the current development version before it is merged:
-
-```bash
-git switch semaphore_separate_portaudio_callback
 ```
 
 ### 2. Install system packages
@@ -226,10 +218,9 @@ arecord -l
 `paRead` calls `mlockall()`, so the user must be allowed to lock memory. A typical configuration is:
 
 ```bash
-sudo tee /etc/security/limits.d/99-vibration-control.conf >/dev/null <<'LIMITS'
+sudo tee /etc/security/limits.d/test.conf >/dev/null <<'LIMITS'
 @audio - rtprio 95
 @audio - memlock unlimited
-@audio - nice -20
 LIMITS
 ```
 

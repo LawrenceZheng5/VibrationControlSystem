@@ -475,7 +475,7 @@ The effective saved rate should be checked for every important dataset using the
 
 ---
 
-## 5.1 Local Logger Optimization Work
+## 5.1 Local Logger Optimization Future Work
 
 The following changes should be tested to improve local FITS logging performance:
 
@@ -489,8 +489,6 @@ The following changes should be tested to improve local FITS logging performance
 - Test different FITS cube sizes.
 - Check whether storage write speed is limiting performance.
 - Reduce unnecessary background processes.
-- Compare real-time and non-real-time kernels.
-- Confirm that the CPU governor remains in performance mode.
 - Check whether the logger thread and writer thread require separate CPU affinity settings.
 
 Relevant `milk-streamFITSlog` options include:
