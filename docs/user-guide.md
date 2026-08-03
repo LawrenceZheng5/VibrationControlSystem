@@ -265,7 +265,7 @@ scripts/save_data_local.py
 
 This script records accelerometer data directly on the DAQ computer.
 
-The DAQ computer receives its network address using DHCP. Its IP address may therefore change after a reboot or after reconnecting it to the network. It should be `133.40.160.221`
+The DAQ computer receives its network address using DHCP. Its IP address may therefore change after a reboot or after reconnecting it to the network. 
 
 Check the current DAQ IP address with:
 
@@ -549,7 +549,6 @@ The remote computer is:
 
 ```text
 Host: aorts25
-IP address: 133.40.163.189
 ```
 
 ---
@@ -609,14 +608,14 @@ tmux attach -t accel-receiver
 After the receiver is running on `aorts25`, start transmission from the DAQ computer:
 
 ```bash
-milk-nettransmit -s accel 30100 -T 133.40.163.189
+milk-nettransmit -s accel 30100 -T <aorts25 IP>
 ```
 
 This command:
 
 - Selects the `accel` stream.
 - Uses port `30100`.
-- Sends the stream to `133.40.163.189`.
+- Sends the stream to `aorts25`.
 - Uses TCP unless UDP is explicitly requested.
 
 The receiving process on `aorts25` creates or updates a corresponding MILK shared-memory stream.
@@ -821,7 +820,7 @@ netstat -lntu | grep ":30100"
 From the DAQ computer, test network access:
 
 ```bash
-ping 133.40.163.189
+ping <aorts25 IP>
 ```
 
 Confirm the sender is running:
@@ -833,7 +832,7 @@ pgrep -af milk-nettransmit
 Confirm that the correct command was used:
 
 ```bash
-milk-nettransmit -s accel 30100 -T 133.40.163.189
+milk-nettransmit -s accel 30100 -T <RT_comp IP>
 ```
 
 ---
