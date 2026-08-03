@@ -25,8 +25,9 @@ SAMPLE_RATE = 8000
 
 # 7pm to 7am 
 RUN_HOURS = 12
-NUM_STREAM_WRITERS = 2
-STREAM_UPDATE_RATE = SAMPLE_RATE * NUM_STREAM_WRITERS
+
+STREAM_UPDATE_RATE = SAMPLE_RATE
+
 
 # Add a 5% margin so the logger limit is not reached before timeout/Ctrl+C.
 MAX_FRAMES = int(STREAM_UPDATE_RATE * RUN_HOURS * 3600 * 1.05)
@@ -37,6 +38,32 @@ RUN_DIRECTORY_PATTERN = re.compile(
 
 PA_READ_PROCESS = None
 TEE_PROCESS = None
+
+LOGGER_RTP  = 40
+LOGGER_WRTP = 30
+
+def find_attached_logger_pid(stream_name: str) -> int:
+    shm_path = f"/milk/shm/{stream_name}.im.shm"
+
+    for pid in find_processes_matching(
+        f"streamFITSlog-{stream_name}"
+    ):
+        maps_path = Path(f"/proc/{pid}/maps")
+
+        try:
+            maps_text = maps_path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError:
+            continue
+
+        if shm_path in maps_text:
+            return pid
+
+    raise RuntimeError(
+        f"Could not find logger attached to {shm_path}"
+    )
 
 def clear_stale_fits_logger_state():
     """
@@ -682,6 +709,8 @@ def main():
             "-D", str(data_dir / stream),
             "-z", str(CUBE_SIZE),
             "-n", str(MAX_FRAMES),
+            "-rtp", str(LOGGER_RTP),
+            "-wrtp", str(LOGGER_WRTP),
             stream,
             "pstart",
         ])
@@ -698,6 +727,8 @@ def main():
             "-D", str(log_directory),
             "-z", str(CUBE_SIZE),
             "-n", str(MAX_FRAMES),
+            "-rtp", str(LOGGER_RTP),
+            "-wrtp", str(LOGGER_WRTP),
             stream,
             "set",
         ])
@@ -708,6 +739,25 @@ def main():
             stream,
             "on",
         ])
+        
+    logger_pid = find_attached_logger_pid(stream)
+
+    run_cmd([
+        "taskset",
+        "-acp",
+        "6",
+        str(logger_pid),
+    ])
+
+    run_cmd([
+        "ps",
+        "-L",
+        "-p",
+        str(logger_pid),
+        "-o",
+        "pid,tid,psr,cls,rtprio,pri,ni,stat,comm"
+    ])
+
 
     for stream in STREAM_NAMES:
         wait_for_first_fits(data_dir / stream)

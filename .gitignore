@@ -6,6 +6,7 @@ bin/*
 
 # Data Folder
 data/raw/*
+data/*
 
 milkscriptcmd.log
 *.png

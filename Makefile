@@ -2,8 +2,8 @@ CC = gcc
 
 MILK_INSTALLDIR ?= /usr/local/milk-1.03.00
 
-CFLAGS = -O3 -I$(MILK_INSTALLDIR)/include -Wall -Iinclude
-LDLIBS = -lImageStreamIO -lm -lportaudio
+CFLAGS = -O3 -I$(MILK_INSTALLDIR)/include -Wall -Iinclude -pthread
+LDLIBS = -lImageStreamIO -lm -lportaudio -pthread
 LDFLAGS = -L$(MILK_INSTALLDIR)/lib
 
 TARGETS = dataProcessEX paRead posTrack test monitorCount monitorTime

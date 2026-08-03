@@ -27,10 +27,11 @@
 #define TIMING_EVENT_PA_STATUS    (1u << 3)
 
 // CPU affinity for the main thread, signal conditioner 0, signal conditioner 1, and USB IRQ handler
-#define MAIN_CPU    8
-#define SC0_CPU     10
-#define USB_IRQ_CPU 12
-#define SC1_CPU     14
+// #define PUBLISHER_CPU    8
+#define SC0_CPU         10
+// Don't pin any thing to USB_IRQ CPU
+#define USB_IRQ_CPU     12
+#define SC1_CPU         14
 
 #define DEBUG_MARKER(img)                        \
     do {                                         \
@@ -45,6 +46,9 @@
 // Global Vars
 IMAGE *linarray;
 IMAGE *sigarray0;
+
+static SampleQueue sc0Queue;
+static SampleQueue sc1Queue;
 
 static volatile sig_atomic_t keepRunning = 1;
 
@@ -128,30 +132,30 @@ int main(int argc, char *argv[]) {
   uint16_t atype = _DATATYPE_FLOAT;
   int shared     = 1 ;
   int NBkw       = 0;
-  int CBsize     = 6;                 // Circular buffer size
+  int CBsize     = 1;                 // Circular buffer size
 
   // For Accels on SC0
   sigarray0 = (IMAGE*) malloc(sizeof(IMAGE)*NBIMAGES);
   ImageStreamIO_createIm(&sigarray0[0], "accel", naxis, size, atype, shared, NBkw, CBsize);
 
+  sigarray0[0].md[0].cnt1 = 0;
+
   StreamContext ctx0 = {0};
 
-  ctx0.img = &sigarray0[0];
+  ctx0.queue = &sc0Queue;
   ctx0.chScale[0] = 10.f / (32767.f * SC0_CH1_ACCEL_CALIBRATION);
   ctx0.chScale[1] = 10.f / (32767.f * SC0_CH2_ACCEL_CALIBRATION);
   ctx0.name = "SC0";
   ctx0.targetCpu = SC0_CPU;
-  ctx0.conditionerIndex = 0;
   ctx0.timingEventCapacity = MAX_TIMING_EVENTS;
 
   StreamContext ctx1 = {0};
 
-  ctx1.img = &sigarray0[0];
+  ctx1.queue = &sc1Queue;
   ctx1.chScale[0] = 10.f / (32767.f * SC1_CH1_ACCEL_CALIBRATION);
   ctx1.chScale[1] = 0.0f;
   ctx1.name = "SC1";
   ctx1.targetCpu = SC1_CPU;
-  ctx1.conditionerIndex = 1;
   ctx1.timingEventCapacity = MAX_TIMING_EVENTS;
 
 
@@ -179,10 +183,10 @@ int main(int argc, char *argv[]) {
 
   memset(ctx1.timingEvents, 0, ctx1.timingEventCapacity * sizeof(*ctx1.timingEvents)); 
 
-  if (SET_CURRENT_THREAD_CPU(MAIN_CPU) != 0) {
-    perror("Failed to pin main thread");
-    return 1;
-  }
+  // if (SET_CURRENT_THREAD_CPU(MAIN_CPU) != 0) {
+  //   perror("Failed to pin main thread");
+  //   return 1;
+  // }
 
   // Debugging shm img
   uint32_t sizeL[1];
@@ -198,10 +202,64 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "PortAudio Init Error: %s\n", Pa_GetErrorText(err));
     return 1;
   }
-  
+  PublisherContext publisher = {0};
+
+  publisher.img = &sigarray0[0];
+
+  publisher.sc0Queue = &sc0Queue;
+  publisher.sc1Queue = &sc1Queue;
+
+  publisher.sc0Scale[0] = ctx0.chScale[0];
+  publisher.sc0Scale[1] = ctx0.chScale[1];
+
+  publisher.sc1Scale[0] = ctx1.chScale[0];
+  publisher.sc1Scale[1] = ctx1.chScale[1];
+
+  publisher.matchToleranceSeconds = 0.75 / SAMPLE_RATE;
+
+  atomic_init(&publisher.stopRequested, 0);
+
+  pthread_t publisherThread;
+
+  const int publisherCreateError = pthread_create(
+      &publisherThread,
+      NULL,
+      PUBLISHER_THREAD,
+      &publisher
+  );
+
+  if (publisherCreateError != 0) {
+    fprintf(stderr, "pthread_create publisher failed: %s\n", strerror(publisherCreateError));
+
+    CLEAN_UP(NULL, NULL);
+    free(outputDirectory);
+    return 1;
+  }
 
   PaStream* stream0 = START_STREAM(SC0, &ctx0);
   PaStream* stream1 = START_STREAM(SC1, &ctx1);
+
+  if (stream0 == NULL || stream1 == NULL) {
+    fprintf(stderr, "Failed to start both signal conditioners.\n");
+
+    if (stream0 != NULL) {
+      Pa_StopStream(stream0);
+    }
+
+    if (stream1 != NULL) {
+      Pa_StopStream(stream1);
+    }
+
+    atomic_store_explicit(&publisher.stopRequested, 1, memory_order_release);
+
+    pthread_join(publisherThread, NULL);
+
+    CLEAN_UP(stream0, stream1);
+    free(outputDirectory);
+    return 1;
+  }
+  double acquisitionStartTime = now_sec();
+
   for (int attempt = 0; attempt < 100; ++attempt) {
       int sc0State = atomic_load_explicit(&ctx0.affinityState, memory_order_acquire);
       int sc1State = atomic_load_explicit(&ctx1.affinityState, memory_order_acquire);
@@ -216,9 +274,8 @@ int main(int argc, char *argv[]) {
   PRINT_CALLBACK_AFFINITY(&ctx0);
   PRINT_CALLBACK_AFFINITY(&ctx1);
 
-  double acquisitionStartTime = now_sec();
 
-  
+  printf("Acquisition started at: %f\n", acquisitionStartTime);
 
   PRINT_RT_PROPERTIES(NULL);
 
@@ -248,12 +305,42 @@ int main(int argc, char *argv[]) {
       fflush(stdout);
     }
   }
+  atomic_store_explicit(
+    &publisher.stopRequested,
+    1,
+    memory_order_release
+  );
+
+  const int publisherJoinError = pthread_join(publisherThread, NULL);
+
+  if (publisherJoinError != 0) {
+      fprintf(stderr, "pthread_join publisher failed: %s\n", strerror(publisherJoinError));
+  }
 
   double acquistionDuration = now_sec() - acquisitionStartTime;
 
   PRINT_TIMING_SUMMARY(&ctx0, acquistionDuration);
   PRINT_TIMING_SUMMARY(&ctx1, now_sec() - acquisitionStartTime);
+  const uint64_t sc0QueueDrops = atomic_load_explicit(&sc0Queue.fullDropCount, memory_order_relaxed);
 
+  const uint64_t sc1QueueDrops = atomic_load_explicit(&sc1Queue.fullDropCount, memory_order_relaxed);
+
+  const double meanSkewMicroseconds =
+      publisher.publishedFrames > 0
+          ? (
+              publisher.accumulatedAbsoluteSkewSeconds /
+              (double)publisher.publishedFrames
+            ) * 1.0e6
+          : 0.0;
+
+  printf("\nPublisher summary\n");
+  printf("Published complete frames:              %" PRIu64 "\n", publisher.publishedFrames);
+  printf("SC0 queue-full drops:                   %" PRIu64 "\n", sc0QueueDrops);
+  printf("SC1 queue-full drops:                   %" PRIu64 "\n", sc1QueueDrops);
+  printf("SC0 unmatched timestamp samples:        %" PRIu64 "\n", publisher.unmatchedSc0);
+  printf("SC1 unmatched timestamp samples:        %" PRIu64 "\n", publisher.unmatchedSc1);
+  printf("Mean absolute SC0/SC1 skew:             %.3f us\n", meanSkewMicroseconds);
+  printf("Maximum accepted SC0/SC1 skew:          %.3f us\n", publisher.maximumAbsoluteSkewSeconds * 1.0e6);
   fflush(stdout);
 
   printf("Writing timing files...\n");
@@ -298,50 +385,275 @@ static void HANDLE_SIGNAL(int signo) {
   keepRunning = 0;
 }
 
-void PROCESS_DATA(const int16_t *samples, unsigned long frameCount, StreamContext *ctx) {
-/*
- * Helper function for callback
- * Turns into acceleration
- * Writes to milk shm
- */  
+static bool SAMPLE_QUEUE_PUSH(SampleQueue *queue, const QueuedSample *sample) {
+  const uint64_t writeIndex = atomic_load_explicit(
+      &queue->writeIndex,
+      memory_order_relaxed
+  );
 
-  IMAGE *img = ctx->img;
+  const uint64_t readIndex = atomic_load_explicit(
+      &queue->readIndex,
+      memory_order_acquire
+  );
 
-  // Indicate the type of data (same as earlier defined)
-  float *buf = img->array.F;
-  
-  int conditionerIndex = ctx->conditionerIndex;
+  /*
+    * The queue is full when the producer is one complete
+    * queue capacity ahead of the consumer.
+    */
+  if (writeIndex - readIndex >= SAMPLE_QUEUE_CAPACITY) {
+    atomic_fetch_add_explicit(
+        &queue->fullDropCount,
+        1,
+        memory_order_relaxed
+    );
 
-  // Writing 1 to indicate writing started
-  img->md[0].write = 1;
-
-  // printf("Processing %lu samples\n", frameCount);
-
-  // Write data
-  for (unsigned long frames = 0; frames < frameCount; ++frames) {
-    for (int ch = 0; ch < CHANNELS; ++ch) {
-      unsigned long index = ch + CHANNELS * conditionerIndex + CHANNELS * NUM_SC * frames;
-
-      buf[index] = ((float)samples[frames * CHANNELS + ch] * ctx->chScale[ch]); // To m/s^2
-    }
+    return false;
   }
 
-/*
-  * cnt0 = normal frame/update counter
-  * cnt1 = tag showing which signal conditioner wrote most recently
-  *
-  * cnt1 = 0 means SC0
-  * cnt1 = 1 means SC1
-  */
-  img->md[0].cnt0++;
-  img->md[0].cnt1 = conditionerIndex; // Indicate which conditioner the data is from
+  queue->samples[writeIndex & SAMPLE_QUEUE_MASK] = *sample;
 
-  // Write 0 to indicate writing finished
+  /*
+    * Release publishes the completed sample to the consumer.
+    */
+  atomic_store_explicit(
+      &queue->writeIndex,
+      writeIndex + 1,
+      memory_order_release
+  );
+
+  return true;
+}
+
+static bool SAMPLE_QUEUE_POP(SampleQueue *queue, QueuedSample *sample) {
+  const uint64_t readIndex = atomic_load_explicit(
+      &queue->readIndex,
+      memory_order_relaxed
+  );
+
+  const uint64_t writeIndex = atomic_load_explicit(
+      &queue->writeIndex,
+      memory_order_acquire
+  );
+
+  if (readIndex == writeIndex) {
+    return false;
+  }
+
+  *sample = queue->samples[readIndex & SAMPLE_QUEUE_MASK];
+
+  /*
+    * Release allows the producer to reuse this queue slot.
+    */
+  atomic_store_explicit(
+      &queue->readIndex,
+      readIndex + 1,
+      memory_order_release
+  );
+
+  return true;
+}
+
+static bool SAMPLE_QUEUE_EMPTY(const SampleQueue *queue) {
+  const uint64_t readIndex = atomic_load_explicit(
+      &queue->readIndex,
+      memory_order_acquire
+  );
+
+  const uint64_t writeIndex = atomic_load_explicit(
+      &queue->writeIndex,
+      memory_order_acquire
+  );
+
+  return readIndex == writeIndex;
+}
+
+static void ENQUEUE_DATA(const int16_t *samples, unsigned long frameCount, const PaStreamCallbackTimeInfo *timeInfo, StreamContext *ctx) {
+    if (samples == NULL || timeInfo == NULL || ctx == NULL || ctx->queue == NULL) {
+        return;
+    }
+
+    /*
+     * inputBufferAdcTime corresponds to the first sample in
+     * this callback buffer.
+     */
+    const double firstAdcTime = timeInfo->inputBufferAdcTime;
+
+    for (unsigned long frame = 0; frame < frameCount; ++frame) {
+        QueuedSample sample;
+
+        sample.adcTime = firstAdcTime + (double)frame / SAMPLE_RATE;
+
+        sample.sequence = ctx->nextSampleSequence++;
+
+        sample.channel[0] = samples[frame * CHANNELS + 0];
+
+        sample.channel[1] = samples[frame * CHANNELS + 1];
+
+        /*
+         * When the queue is full, SAMPLE_QUEUE_PUSH records
+         * the drop. Do not block the PortAudio callback.
+         */
+        (void)SAMPLE_QUEUE_PUSH(
+            ctx->queue,
+            &sample
+        );
+    }
+}
+
+static void PUBLISH_COMPLETE_FRAME(PublisherContext *publisher, const QueuedSample *sc0Sample, const QueuedSample *sc1Sample) {
+  IMAGE *img = publisher->img;
+  float *buffer = img->array.F;
+
+  /*
+    * This publisher thread is now the only writer.
+    */
+  img->md[0].write = 1;
+
+  /*
+    * Existing ImageStreamIO layout:
+    *
+    * index 0 = SC0 channel 1 = X
+    * index 1 = SC0 channel 2 = Y
+    * index 2 = SC1 channel 1 = Z
+    * index 3 = unused
+    */
+  buffer[0] = (float)sc0Sample->channel[0] * publisher->sc0Scale[0];
+
+  buffer[1] = (float)sc0Sample->channel[1] * publisher->sc0Scale[1];
+
+  buffer[2] = (float)sc1Sample->channel[0] * publisher->sc1Scale[0];
+
+  buffer[3] = 0.0f;
+
+  /*
+    * Ensure the sample data are visible before publishing
+    * the metadata update.
+    */
+  atomic_thread_fence(memory_order_release);
+
+  img->md[0].cnt0++;
+
+  /*
+    * Do not use cnt1 as an SC0/SC1 tag.
+    */
   img->md[0].write = 0;
+
+  atomic_thread_fence(memory_order_release);
 
   ImageStreamIO_sempost(img, -1);
 
-  // printf("Stream:%s On Ch1 Count %ld, Ch2 Count %ld\n", ctx->name, img->md[0].cnt0, img->md[0].cnt1);
+  publisher->publishedFrames++;
+}
+
+static void *PUBLISHER_THREAD(void *argument) {
+  PublisherContext *publisher = (PublisherContext *)argument;
+
+  // if (SET_CURRENT_THREAD_CPU(PUBLISHER_CPU) != 0) {
+  //       perror("Failed to pin publisher thread");
+  // }
+  QueuedSample sc0Sample = {0};
+  QueuedSample sc1Sample = {0};
+
+  bool haveSc0 = false;
+  bool haveSc1 = false;
+
+  const struct timespec idleSleep = {.tv_sec = 0, .tv_nsec = 20000};
+
+  while (true) {
+    bool madeProgress = false;
+
+    if (!haveSc0) {
+      haveSc0 = SAMPLE_QUEUE_POP(
+          publisher->sc0Queue,
+          &sc0Sample
+      );
+
+      madeProgress |= haveSc0;
+    }
+
+    if (!haveSc1) {
+      haveSc1 = SAMPLE_QUEUE_POP(
+          publisher->sc1Queue,
+          &sc1Sample
+      );
+
+      madeProgress |= haveSc1;
+    }
+
+      if (haveSc0 && haveSc1) {
+        const double skewSeconds = sc0Sample.adcTime - sc1Sample.adcTime;
+
+        const double absoluteSkewSeconds = fabs(skewSeconds);
+
+        if (absoluteSkewSeconds <= publisher->matchToleranceSeconds) {
+          PUBLISH_COMPLETE_FRAME(
+              publisher,
+              &sc0Sample,
+              &sc1Sample
+          );
+
+          publisher->accumulatedAbsoluteSkewSeconds += absoluteSkewSeconds;
+
+          if (absoluteSkewSeconds > publisher->maximumAbsoluteSkewSeconds) {
+            publisher->maximumAbsoluteSkewSeconds = absoluteSkewSeconds;
+          }
+
+          haveSc0 = false;
+          haveSc1 = false;
+          continue;
+        }
+
+        /*
+          * Discard whichever sample is older.
+          *
+          * The next sample from that conditioner should
+          * be closer to the other conditioner's sample.
+          */
+        if (skewSeconds < 0.0) {
+            publisher->unmatchedSc0++;
+            haveSc0 = false;
+        } else {
+            publisher->unmatchedSc1++;
+            haveSc1 = false;
+        }
+
+        continue;
+      }
+
+      const bool stopping = atomic_load_explicit(&publisher->stopRequested, memory_order_acquire) != 0;
+
+      if (stopping) {
+          const bool sc0Empty = SAMPLE_QUEUE_EMPTY(publisher->sc0Queue);
+
+          const bool sc1Empty = SAMPLE_QUEUE_EMPTY(publisher->sc1Queue);
+
+          /*
+            * Drain unmatched samples after both PortAudio
+            * streams have stopped.
+            */
+          if (haveSc0 && !haveSc1 && sc1Empty) {
+              publisher->unmatchedSc0++;
+              haveSc0 = false;
+              continue;
+          }
+
+          if (haveSc1 && !haveSc0 && sc0Empty) {
+              publisher->unmatchedSc1++;
+              haveSc1 = false;
+              continue;
+          }
+
+          if (!haveSc0 && !haveSc1 && sc0Empty && sc1Empty) {
+              break;
+          }
+      }
+
+      if (!madeProgress) {
+          nanosleep(&idleSleep, NULL);
+      }
+  }
+
+  return NULL;
 }
 
 static int CALLBACK(const void *inputBuffer, 
@@ -356,7 +668,7 @@ static int CALLBACK(const void *inputBuffer,
 
   StreamContext *ctx = (StreamContext *)userData;
 
-  // SET_CALLBACK_AFFINITY(ctx);
+  SET_CALLBACK_AFFINITY(ctx);
 
   atomic_fetch_add_explicit(&ctx->callbackCount,1,memory_order_relaxed);
   
@@ -382,8 +694,16 @@ static int CALLBACK(const void *inputBuffer,
     return paContinue;
   }
 
-  PROCESS_DATA((const int16_t *)inputBuffer, framesPerBuffer, ctx);
+  if (timeInfo == NULL) {
+    return paContinue;
+  }
 
+  ENQUEUE_DATA(
+      (const int16_t *)inputBuffer,
+      framesPerBuffer,
+      timeInfo,
+      ctx
+  );
   return paContinue;
 }
 
@@ -441,9 +761,16 @@ PaStream* START_STREAM(char *targetDevice, StreamContext *ctx) {
 
   err = Pa_StartStream(stream);
   
-  if (err != paNoError){
-    fprintf(stderr, "Pa_StartStream error: %s\n", Pa_GetErrorText(err));
-    return NULL;
+
+  if (err != paNoError) {
+      fprintf(
+          stderr,
+          "Pa_StartStream error: %s\n",
+          Pa_GetErrorText(err)
+      );
+
+      Pa_CloseStream(stream);
+      return NULL;
   }
 
   return stream;
@@ -908,35 +1235,35 @@ static void PRINT_TIMING_SUMMARY(const StreamContext *ctx, double durationSecond
 // and seperate thread synchronizes the buffer to shm img. But for now, just leaving it commented out due to limited time. 
 // Just want to have reliable enough data to present and show at the symposium. 
 
-// static void SET_CALLBACK_AFFINITY(StreamContext *ctx) {
-//     if (atomic_load_explicit(&ctx->affinityState, memory_order_relaxed) != 0) {
-//         return;
-//     }
+static void SET_CALLBACK_AFFINITY(StreamContext *ctx) {
+    if (atomic_load_explicit(&ctx->affinityState, memory_order_relaxed) != 0) {
+        return;
+    }
 
-//     pid_t tid = syscall(SYS_gettid);
+    pid_t tid = syscall(SYS_gettid);
 
-//     if (ctx->targetCpu < 0 || ctx->targetCpu >= CPU_SETSIZE) {
-//         atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
-//         atomic_store_explicit(&ctx->affinityError, EINVAL, memory_order_relaxed);
-//         atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
-//         return;
-//     }
+    if (ctx->targetCpu < 0 || ctx->targetCpu >= CPU_SETSIZE) {
+        atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityError, EINVAL, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
+        return;
+    }
 
-//     cpu_set_t cpuMask;
-//     CPU_ZERO(&cpuMask);
-//     CPU_SET(ctx->targetCpu, &cpuMask);
+    cpu_set_t cpuMask;
+    CPU_ZERO(&cpuMask);
+    CPU_SET(ctx->targetCpu, &cpuMask);
 
-//     if (sched_setaffinity(0, sizeof(cpuMask), &cpuMask) != 0) {
-//         atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
-//         atomic_store_explicit(&ctx->affinityError, errno, memory_order_relaxed);
-//         atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
-//         return;
-//     }
+    if (sched_setaffinity(0, sizeof(cpuMask), &cpuMask) != 0) {
+        atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityError, errno, memory_order_relaxed);
+        atomic_store_explicit(&ctx->affinityState, -1, memory_order_release);
+        return;
+    }
 
-//     atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
-//     atomic_store_explicit(&ctx->callbackCpu, sched_getcpu(), memory_order_relaxed);
-//     atomic_store_explicit(&ctx->affinityState, 1, memory_order_release);
-// }
+    atomic_store_explicit(&ctx->callbackTid, (int)tid, memory_order_relaxed);
+    atomic_store_explicit(&ctx->callbackCpu, sched_getcpu(), memory_order_relaxed);
+    atomic_store_explicit(&ctx->affinityState, 1, memory_order_release);
+}
 
 static int SET_CURRENT_THREAD_CPU(int cpu) {
     if (cpu < 0 || cpu >= CPU_SETSIZE) {
